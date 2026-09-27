@@ -1,0 +1,22 @@
+# Generated at run time by main.sh -- see REPRODUCE.md. Never commit the
+# bulk classification output (working/ alone reaches hundreds of GB across
+# the n=3 chiral/mixed buckets); results/ is small and DOES get committed
+# (see the exception below) since it's the actual evidence for the paper's
+# numbers, not a cache.
+/working/
+
+# Uncomment if results/ ever grows past what's comfortable to commit
+# (e.g. once stage 09's DRAT proof archives land in it):
+# /results/
+
+# Node
+/node_modules/
+npm-debug.log*
+
+# CaDiCaL lives in a sibling directory (../cadical), not inside this repo,
+# so nothing to ignore for it here -- listed only as a reminder that it's
+# intentionally NOT a git submodule of this repo (see REPRODUCE.md).
+
+# OS/editor cruft
+.DS_Store
+*.swp
