@@ -32,7 +32,7 @@ git clone https://github.com/arminbiere/cadical.git
 # Pin a commit for reproducibility rather than tracking a moving branch tip:
 ( cd cadical && git checkout <commit-sha-used-in-the-paper> )
 
-git clone <aperiodic_triangles-repo-url>
+git clone https://github.com/andrewbayly/aperiodic_triangles.git
 cd aperiodic_triangles
 npm install
 ```
