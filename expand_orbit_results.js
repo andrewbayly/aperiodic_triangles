@@ -61,9 +61,16 @@ for (let i = 0; i < orbitLines.length; i++) {
   keyToMembers.set(orbitKey(rec.tiles, rec.reflectableFlags), orbit.memberIdx);
 }
 
+// Writes synchronously (buffer-then-writeFileSync, not a WriteStream) on
+// purpose: an earlier version used fs.createWriteStream + out.end(), which
+// is asynchronous, and a subsequent process.exit() (see bottom of file, the
+// unresolvedRaw > 0 case) killed the process before those writes flushed --
+// out_summary.json (written with writeFileSync) would appear, but the
+// actual *_raw.jsonl files would be silently empty or truncated. Confirmed
+// with a small synthetic test before trusting this against real data.
 function expand(globPrefix, outFile) {
   const files = fs.readdirSync(resolveDir).filter(f => f.startsWith(globPrefix) && f.endsWith('.jsonl'));
-  const out = fs.createWriteStream(outFile);
+  const outLines = [];
   let rawTotal = 0, orbitTotal = 0;
   for (const f of files) {
     for (const line of fs.readFileSync(path.join(resolveDir, f), 'utf8').split('\n')) {
@@ -73,16 +80,16 @@ function expand(globPrefix, outFile) {
       const members = keyToMembers.get(k);
       if (members === undefined) {
         console.error(`WARNING: record in ${f} has no matching orbit in ${orbitsPath} -- writing just this one record as its own raw member.`);
-        out.write(line.trim() + '\n');
+        outLines.push(line.trim());
         rawTotal += 1;
       } else {
-        for (const idx of members) out.write(predupLines[idx] + '\n');
+        for (const idx of members) outLines.push(predupLines[idx]);
         rawTotal += members.length;
       }
       orbitTotal++;
     }
   }
-  out.end();
+  fs.writeFileSync(outFile, outLines.length ? outLines.join('\n') + '\n' : '');
   return { rawTotal, orbitTotal };
 }
 
