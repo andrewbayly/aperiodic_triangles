@@ -3,36 +3,193 @@
 Multi-core Node.js solver for classifying edge-marked-triangle tilesets as
 **periodic**, **non-tiler**, or **aperiodic-candidate**, for n = 1, 2, or 3
 prototiles, with independent per-tile chirality (reflectable / non-reflectable).
+`main.sh` reproduces the full computational claim behind the paper's
+minimality half: every n=1, n=2, and n=3 edge-matching triangle tileset,
+under every possible reflectable/chiral configuration, is either periodic
+or a non-tiler. See `command_log.md`'s final MILESTONE section and
+`results/SUMMARY.md` (once generated) for the numbers this produces.
 
-**One command does everything.** Running `main.js` classifies every shape
-using the full pipeline below -- unmatchable-edge check, conservation-law
-check, a multi-size patch battery, and a multi-size torus battery -- so the
+**One command does everything.** Each classification uses the full pipeline
+described below -- unmatchable-edge check, conservation-law check, a
+multi-size patch battery, and a multi-size torus battery -- so the
 "aperiodic-candidate" bucket it produces is the true, final candidate set.
 No separate follow-up rechecking is required for correctness.
 
-## Requirements
-Node.js 16+. One external dependency, `javascript-lp-solver` (used only for
-the conservation-law check's linear-programming feasibility test):
+## Reproducing the full n≤3 minimality result
+
+This is the default way to use this repo: one long-running command that
+reproduces every number behind the minimality claim, from a fresh clone
+through to `results/SUMMARY.md`. If you only want to classify a single
+`--n`/`--reflectable` combination directly, see "Manual, single-invocation
+usage" further down instead.
+
+### Project layout
+
 ```
+<some-directory>/
+  cadical/              -- third-party SAT solver, built once
+  aperiodic_triangles/  -- this repo
+    main.sh
+    scripts/            -- numbered pipeline stages, see below
+    *.js                -- pipeline code
+    working/            -- large intermediate files (created at runtime)
+    results/            -- final, compact outputs (created at runtime)
+```
+
+`working/` and `results/` are created by the pipeline itself and are
+gitignored -- `working/` in particular gets large (see "Disk space" below).
+
+### Initial setup
+
+```sh
+mkdir aperiodicity-reproduction && cd aperiodicity-reproduction
+
+git clone https://github.com/arminbiere/cadical.git
+# Pin a commit for reproducibility rather than tracking a moving branch tip:
+( cd cadical && git checkout <commit-sha-used-in-the-paper> )
+
+git clone https://github.com/andrewbayly/aperiodic_triangles.git
+cd aperiodic_triangles
 npm install
 ```
 
-## Usage
+**Determine `--workers` before running anything** -- see "Choosing
+--workers" below. This is the one genuinely manual step, and it matters:
+oversubscribing efficiency cores on a hybrid-core machine measurably
+*reduces* total throughput on this workload rather than increasing it.
+Neither `main.sh` nor `main.js` will guess this for you on purpose.
+
+### Running it
+
+```sh
+# From scratch:
+sh ./main.sh --workers <N> --fresh
+
+# Resuming after an interruption (crash, reboot, Ctrl-C):
+sh ./main.sh --workers <N>
+```
+
+Every stage is independently idempotent: a stage that already finished
+(marker file present under `working/.markers/`) is skipped instantly, and
+a stage interrupted partway resumes from its own tool's per-worker
+checkpoint rather than restarting the whole stage. So resuming is always
+just re-running the same command -- there's no special "resume mode" to
+remember, `--fresh` is the only thing that changes what happens.
+
+**Never run two instances against the same `working/` tree concurrently**
+-- `main.js` refuses to start a second instance against an output
+directory that's still locked by a live one (see "Resuming" under Manual
+usage below for why this matters).
+
+If you'd rather run one stage at a time (to inspect intermediate output,
+or because you're only interested in one piece), the numbered scripts
+under `scripts/` are meant to be run directly and in order -- `main.sh` is
+nothing more than a loop over them:
+
+```sh
+sh scripts/00_build_cadical.sh
+WORKERS=8 sh scripts/01_classify_n1.sh
+WORKERS=8 sh scripts/02_classify_n2.sh
+# ...and so on through scripts/10_summarize_results.sh
+```
+
+(Stages that need `--workers` read it from the `WORKERS` environment
+variable when run this way, rather than a flag, since `main.sh` exports
+it for them; set it yourself if running a script standalone.)
+
+### What each stage does, and how long it takes
+
+Timings are from the original run, 8 performance cores on an Apple
+Silicon Mac. Your numbers will scale with core count and clock speed.
+
+| Stage | What | Time |
+|---|---|---|
+| 00 | Build CaDiCaL | ~1 min |
+| 01 | n=1, both patterns | <1 min |
+| 02 | n=2, all 3 patterns | ~36 min |
+| 03 | n=3, all-reflectable pattern | ~24h (dominated by the initial full sweep) |
+| 04 | Gather all-reflectable periodic parents | minutes |
+| 05 | Generate chiral/mixed variants from those parents | ~66 min |
+| 06 | Resolve bucket 0 (all-chiral) | ~1h |
+| 07 | Resolve bucket 1 (1 reflectable tile) | ~5h52m |
+| 08 | Resolve bucket 2 (2 reflectable tiles) | ~14h27m |
+| 09 | *(not yet implemented)* DRAT certificate batch verification | — |
+| 10 | Write `results/SUMMARY.md` | seconds |
+
+Total is multi-day, dominated by stages 03, 07, and 08. `main.sh` doesn't
+parallelize *across* stages (04 needs 03's output, etc.), only within
+each stage via `--workers`.
+
+Stage 09 is deliberately excluded from `main.sh`'s default run (see
+`scripts/09_verify_sat_certificates.sh` -- it's a placeholder for work
+tracked in `TODO.md`, not a broken step). The classification result
+itself is already complete and correct after stage 08; stage 09 will add
+archivable DRAT proofs for the paper's reproducibility appendix once
+built.
+
+### Disk space
+
+`working/` holds every raw intermediate JSONL file, including the ~176M
+raw n=3 chiral/mixed tilesets across buckets 0-2. Budget on the order of
+several hundred GB free before starting a from-scratch run; `results/`
+by contrast stays small (summaries and the ~1,191-orbit n=3
+all-reflectable residual, not the bulk periodic/non-tiler files). Once
+you've confirmed `results/SUMMARY.md` matches what you expect, `working/`
+can be deleted to reclaim space -- nothing later in the pipeline reads
+from a stage's `working/` output once that stage's own results have been
+copied into `results/`.
+
+### Verifying the result
+
+`results/SUMMARY.md` (written by stage 10) is the top-line table. Every
+resolver stage also refuses to report success if any shape came back
+unresolved (`expand_orbit_results.js` and `scripts/_resolve_bucket.sh`
+both exit nonzero in that case) -- so if `main.sh` completes without
+error, `unresolved` is 0 everywhere by construction, not just by the
+summary saying so.
+
+## Manual, single-invocation usage
+
+For classifying one specific `--n`/`--reflectable` combination directly,
+rather than running the full reproduction pipeline:
+
 ```
 node main.js --n 1
 node main.js --n 2 --workers 8
 node main.js --n 3 --reflectable 1,1,0 --workers 8 --output ./triangle_n3_mixed
 ```
 
-Run `node main.js --help` for all options. Use the number of *performance*
-cores your machine actually has, not the total logical core count reported
-by the OS -- see "Choosing --workers" below.
+Run `node main.js --help` for all options.
 
-**Resuming:** if interrupted, rerun the *exact same command* (same `--output`
-directory). Each worker reads its own checkpoint and resumes from exactly
-where it left off. The checkpoint is only ever written *after* a synchronous
-flush of the corresponding output data to disk, so an interruption (crash,
-kill, power loss) can never silently lose already-completed results.
+**Resuming:** if interrupted, rerun the *exact same command* (same
+`--output` directory). Each worker reads its own checkpoint and resumes
+from exactly where it left off. The checkpoint is only ever written
+*after* a synchronous flush of the corresponding output data to disk, so
+an interruption (crash, kill, power loss) can never silently lose
+already-completed results. `main.js` also holds a lock file for the
+lifetime of one running instance and refuses to start a second one
+against the same `--output` directory while the first is still alive --
+running two overlapping instances against the same directory can race on
+the same checkpoint/output files.
+
+## Choosing --workers
+
+Use your machine's **performance core count**, not the OS-reported logical
+core count -- these can differ substantially (e.g., Apple Silicon splits
+cores into performance and efficiency tiers, and oversubscribing with
+efficiency-core-inclusive counts can make total throughput *worse* than
+using fewer workers). On macOS:
+```
+sysctl -n hw.perflevel0.physicalcpu   # performance cores -- use this number
+sysctl -n hw.ncpu                     # total logical cores -- do NOT use this
+```
+On Linux, check for a P-core/E-core split before trusting `nproc`; on a
+uniform-core machine `nproc` is fine.
+
+If in doubt, benchmark: try a few `--workers` values for ~15 seconds each
+on n=2 (or the n=2 pipeline stage) and use whichever gives the highest
+aggregate rate. Neither `main.sh` nor `main.js` guesses this for you on
+purpose (see `scripts/_common.sh`'s `require_workers`).
 
 ## The classification pipeline (all inside `classify.js`)
 
@@ -87,20 +244,6 @@ either proves the answer outright or hands off to the next:
    way the hexagon paper's Section 3 eventually required for its hardest
    cases.
 
-## Choosing --workers
-
-Use your machine's **performance core count**, not the OS-reported logical
-core count -- these can differ substantially (e.g., Apple Silicon splits
-cores into performance and efficiency tiers, and oversubscribing with
-efficiency-core-inclusive counts can make total throughput *worse* than
-using fewer workers). On macOS:
-```
-sysctl -n hw.perflevel0.physicalcpu   # performance cores -- use this number
-sysctl -n hw.ncpu                     # total logical cores -- do NOT use this
-```
-If in doubt, benchmark: try a few `--workers` values for ~15 seconds each on
-n=2 and use whichever gives the highest aggregate rate.
-
 ## How canonical enumeration works: orderly generation
 
 Rather than enumerating every raw labeling and filtering out
@@ -149,7 +292,15 @@ if you want single files.
   `torusUnresolved` lists any torus sizes that hit the backtracking budget
   without resolving (rare, but possible for hard instances).
 
+- `skipped_duplicate_w<id>.jsonl` -- n>=2 tilesets with a duplicate tile,
+  provably equivalent to a smaller already-resolved tileset; not counted
+  toward periodic/non-tiler/candidate totals.
+
 - `checkpoint_w<id>.json` -- resumability state; safe to inspect, don't edit.
+
+- `.lock` -- held for the lifetime of one running `main.js` instance;
+  prevents a second instance from starting against the same `--output`
+  directory concurrently.
 
 ## Visualizing a tileset: `render_tilesets.js`
 
@@ -195,6 +346,9 @@ tiles); `pt`: 0=a, 1=b, 2=c; `pr`: 0=p, 1=q, 2=r.
 
 ## Files
 
+- `main.sh` / `scripts/` -- the full reproduction pipeline (see above);
+  `scripts/_common.sh` has shared helpers (`require_workers`,
+  idempotency markers, `split_chunks`).
 - `lattice.js` -- core geometry: the up/down triangular lattice, D_3/C_3
   placement, label presentation. Self-test (`node lattice.js`).
 - `alphabet.js` -- the original (non-orderly) canonical enumeration; kept
@@ -210,7 +364,9 @@ tiles); `pt`: 0=a, 1=b, 2=c; `pr`: 0=p, 1=q, 2=r.
   `javascript-lp-solver`).
 - `classify.js` -- the full classification pipeline (all steps above).
 - `worker.js` / `main.js` -- multi-core orchestration and CLI, using
-  synchronous-flush-then-checkpoint for crash-safe resumability.
+  synchronous-flush-then-checkpoint for crash-safe resumability, a
+  lock file to prevent concurrent instances, and explicit SIGINT/SIGTERM
+  handling.
 - `render_tilesets.js` -- geometric visualization with cross-referenced
   edge matching.
 - `recheck_candidates.js` / `recheck_worker.js` -- optional deeper-torus
