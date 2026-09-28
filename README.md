@@ -45,8 +45,9 @@ gitignored -- `working/` in particular gets large (see "Disk space" below).
 mkdir aperiodicity-reproduction && cd aperiodicity-reproduction
 
 git clone https://github.com/arminbiere/cadical.git
-# Pin a commit for reproducibility rather than tracking a moving branch tip:
-( cd cadical && git checkout <commit-sha-used-in-the-paper> )
+# Pin a commit for reproducibility rather than tracking a moving branch tip
+# (this is the commit used for the paper's results -- tag rel-3.0.1):
+( cd cadical && git checkout c60730422e758ef1cebe7aeddf2dda31c996bf04 )
 
 git clone https://github.com/andrewbayly/aperiodic_triangles.git
 cd aperiodic_triangles
