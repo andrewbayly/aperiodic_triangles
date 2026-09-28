@@ -66,6 +66,14 @@ require_cadical() {
 # for the split step itself, which has no internal checkpointing).
 split_chunks() {
   in_file="$1"; prefix="$2"
+  # mkdir the prefix's parent directory first -- split_lines_roundrobin.js
+  # opens write streams directly against ${prefix}_<n>.jsonl and does not
+  # create missing parent directories itself. Found 2026-09-28: the very
+  # first split_chunks call inside a given working directory (e.g. stage
+  # 03's step 5, the first thing in $WORK/n3_allreflectable to chunk
+  # anything) had no earlier call to have created that directory as a side
+  # effect, so it crashed with an uncaught ENOENT on the first chunk file.
+  mkdir -p "$(dirname "$prefix")"
   last_chunk="${prefix}_$((WORKERS - 1)).jsonl"
   if [ -f "$last_chunk" ]; then
     echo "  chunks already exist at ${prefix}_*.jsonl -- skipping split"
