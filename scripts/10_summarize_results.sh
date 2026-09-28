@@ -10,6 +10,8 @@ skip_if_done "10_summarize_results"
 
 get() { node -e "try{const j=JSON.parse(require('fs').readFileSync('$1','utf8'));console.log(j['$2']??'?')}catch(e){console.log('?')}"; }
 
+N1="$RESULTS/n1/summary.json"
+N2="$RESULTS/n2/summary.json"
 N3_ALLREFL="$RESULTS/n3_allreflectable/final_summary.json"
 B0="$RESULTS/n3_bucket0/summary.json"
 B1="$RESULTS/n3_bucket1/summary.json"
@@ -19,12 +21,19 @@ B2="$RESULTS/n3_bucket2/summary.json"
   echo "# Minimality classification: final results"
   echo
   echo "Generated $(date -u +%FT%TZ) by scripts/10_summarize_results.sh."
+  echo "Every row below is read from this run's own output files -- nothing"
+  echo "here is a hardcoded historical number."
   echo
   echo "| n | Reflectable pattern | Periodic | Non-tiler | Unresolved |"
   echo "|---|---|---|---|---|"
-  echo "| 1 | chiral | 14 | 124 | 0 |"
-  echo "| 1 | all-reflectable | 31 | 245 | 0 |"
-  echo "| 2 | all 3 patterns (combined) | 18,819 | 107,830 | 0 |"
+  if [ -f "$N1" ]; then
+    P=$(get "$N1" periodic); NT=$(get "$N1" nonTiler); U=$(get "$N1" unresolved)
+    echo "| 1 | from \`main.js --n 1\` | $P | $NT | $U |"
+  fi
+  if [ -f "$N2" ]; then
+    P=$(get "$N2" periodic); NT=$(get "$N2" nonTiler); U=$(get "$N2" unresolved)
+    echo "| 2 | from \`main.js --n 2\` | $P | $NT | $U |"
+  fi
   if [ -f "$N3_ALLREFL" ]; then
     P=$(get "$N3_ALLREFL" periodicRaw); NT=$(get "$N3_ALLREFL" nonTilerRaw); U=$(get "$N3_ALLREFL" unresolvedRaw)
     echo "| 3 | all-reflectable (3/3) | $P | $NT | $U |"
