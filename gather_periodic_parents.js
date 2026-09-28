@@ -47,5 +47,17 @@ async function processFile(p, out) {
   }
   await new Promise(res => out.end(res));
   console.log('TOTAL:', total, totalMalformed ? `(${totalMalformed} malformed/skipped lines overall)` : '', '-- wrote', outPath);
-  console.log('Expected total: 13,744,988 (13,738,893 original + 184 torus-recheck + 5,911 this session)');
+  // No hardcoded "expected total" here on purpose (removed 2026-09-28,
+  // second time -- a prior removal apparently never made it into the copy
+  // actually on disk). Any fixed number here goes stale the moment the
+  // upstream classify()/worker.js categorization changes -- e.g. the
+  // 2026-09-28 discovery that duplicate-tile shapes are now filtered
+  // upstream into skipped_duplicate_w<id>.jsonl instead of being counted
+  // as periodic, which alone shifted the true periodic total by 37,497
+  // versus the historical figure. The wrapper script
+  // (scripts/04_gather_periodic_parents.sh) already prints its own
+  // sanity-check reminder to compare the per-file counts above against
+  // command_log.md for your specific input set -- that's the right place
+  // for a human judgment call, not a number baked into this file that
+  // silently drifts out of sync with the actual pipeline behavior.
 })();
