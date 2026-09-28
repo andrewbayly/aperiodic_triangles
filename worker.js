@@ -63,7 +63,9 @@ function checkpoint(finalCode, done) {
   fs.writeFileSync(checkpointPath, JSON.stringify({ lastCompletedCode: finalCode, shapesDone, counts, done: !!done }));
 }
 
+let ranAnyIterations = false;
 for (let code = resumeFromCode; code < totalSubtypeSpace; code += numWorkers) {
+  ranAnyIterations = true;
   let c = code;
   const flat = new Array(3 * n);
   for (let j = 0; j < 3 * n; j++) { flat[j] = c % 9; c = (c / 9) | 0; }
@@ -95,10 +97,31 @@ for (let code = resumeFromCode; code < totalSubtypeSpace; code += numWorkers) {
     });
   }
 }
-// totalCodesForWorker === 0 edge case (workerId >= totalSubtypeSpace --
-// only possible if numWorkers exceeds the total space, practically never
-// for n=1..3, but handled for robustness)
-if (totalCodesForWorker === 0) {
-  checkpoint(workerId - numWorkers, true);
-  parentPort.postMessage({ workerId, counts, shapesDone, codesScanned: 0, totalCodesForWorker: 0, elapsedMs: Date.now() - startTime, done: true });
+
+// Two edge cases where the main loop above never executes even once, both
+// of which MUST still send a final checkpoint/postMessage or main.js hangs
+// forever waiting for a 'done' message from this worker that will never
+// arrive:
+//   1. totalCodesForWorker === 0 (workerId >= totalSubtypeSpace -- only
+//      possible if numWorkers exceeds the total space; practically never
+//      for n=1..3, handled for robustness). No checkpoint file could exist
+//      yet in this case, so one is written here.
+//   2. resumeFromCode >= totalSubtypeSpace on entry: this worker had
+//      ALREADY finished every code assigned to it in an earlier invocation
+//      (its checkpoint already says done, or its lastCompletedCode was
+//      already its final one), and this run only exists because some
+//      OTHER worker hadn't finished yet. Found 2026-09-28: previously this
+//      case had NO fallback at all -- if every worker happened to already
+//      be done when main.js was re-launched (e.g. a run killed at exactly
+///     the wrong moment after all workers finished internally but before
+//      main.js registered all 8 'done' messages), EVERY worker would hit
+//      this silently and main.js would wait forever for messages that were
+//      never going to come. The existing checkpoint file is already
+//      correct in this case, so nothing new needs to be persisted --
+//      only the postMessage was missing.
+if (!ranAnyIterations) {
+  if (totalCodesForWorker === 0) {
+    checkpoint(workerId - numWorkers, true);
+  }
+  parentPort.postMessage({ workerId, counts, shapesDone, codesScanned: totalCodesForWorker, totalCodesForWorker, elapsedMs: Date.now() - startTime, done: true });
 }

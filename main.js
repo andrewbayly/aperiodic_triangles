@@ -51,6 +51,12 @@ Output files (one set per worker, in --output):
                                     (see README), not counted toward periodic/non-tiler/
                                     candidate totals
   checkpoint_w<id>.json             resumability state; rerun the same command to resume
+  .lock                             held for the lifetime of one running instance --
+                                    prevents a second instance from being started
+                                    against the same --output directory concurrently
+                                    (confirmed 2026-09-27: two overlapping instances
+                                    racing on the same checkpoint/output files can
+                                    silently discard already-computed results)
 
 Examples:
   node main.js --n 1
@@ -77,10 +83,56 @@ function checkForCloudSync(outputPath) {
   return false;
 }
 
+// --- Lock file: refuse to start a second instance against the same output
+// directory while one is already running. Added 2026-09-27 after confirming
+// that an interrupted-but-not-actually-killed instance (Ctrl-C failed to
+// propagate for an unexplained reason) can race with a freshly-launched one
+// on the same checkpoint/output files, causing already-computed results to
+// be silently lost (a resumed n=3 all-reflectable run came up short by
+// 251,721 shapes relative to the confirmed historical total). This is a
+// blunt guard, not a fix for the root cause of the Ctrl-C issue -- see the
+// explicit SIGINT/SIGTERM handling below, which is the actual fix for that.
+function acquireLock(outputDir) {
+  const lockPath = path.join(outputDir, '.lock');
+  if (fs.existsSync(lockPath)) {
+    let lock = null;
+    let stale = false;
+    try {
+      lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+      try {
+        process.kill(lock.pid, 0); // throws if no such process
+      } catch (e) {
+        stale = true;
+      }
+    } catch (e) {
+      stale = true; // corrupt lock file -- treat as stale rather than blocking forever
+    }
+    if (!stale) {
+      console.error(`ERROR: ${lockPath} exists and PID ${lock.pid} (started ${lock.startedAt}) appears to still be running.`);
+      console.error('Another instance of main.js is already processing this output directory.');
+      console.error('Running two instances against the same directory concurrently can silently');
+      console.error('corrupt checkpoints and discard already-computed results.');
+      console.error(`If you are certain nothing is actually running (e.g. it crashed without`);
+      console.error(`cleaning up), delete ${lockPath} and re-run.`);
+      process.exit(1);
+    }
+    console.warn(`WARNING: found a stale lock file at ${lockPath} (PID ${lock && lock.pid} is not running) -- proceeding.`);
+  }
+  fs.writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  return lockPath;
+}
+
+function releaseLock(lockPath) {
+  try { fs.unlinkSync(lockPath); } catch (e) { /* already gone, fine */ }
+}
+
 function main() {
   const opts = parseArgs();
   fs.mkdirSync(opts.output, { recursive: true });
   checkForCloudSync(opts.output);
+
+  const lockPath = acquireLock(path.resolve(opts.output));
+  process.on('exit', () => releaseLock(lockPath));
 
   const totalSubtypeSpace = 9 ** (3 * opts.n);
   console.log(`Triangle solver: n=${opts.n}, reflectable=[${opts.reflectable}], workers=${opts.workers}`);
@@ -141,6 +193,25 @@ function main() {
 
   const interval = setInterval(printProgress, 10_000);
   process.on('exit', () => clearInterval(interval));
+
+  // Explicit SIGINT/SIGTERM handling. Added 2026-09-27: on 2026-09-27 a
+  // Ctrl-C sent to a running `main.js` process failed to stop it (required
+  // `kill -9` instead), for a reason never conclusively identified -- no
+  // handler existed anywhere in this file or worker.js, so Node's default
+  // behavior (immediate exit on SIGINT) should have applied and didn't.
+  // Rather than leave that unexplained for an unattended multi-day run,
+  // this makes shutdown explicit and no longer dependent on default
+  // behavior: actively terminate every worker thread, then exit, which
+  // also triggers the 'exit' handlers above (lock release, interval clear).
+  function shutdown(signal) {
+    console.log(`\nReceived ${signal}, terminating ${workers.length} worker(s) and shutting down...`);
+    for (const w of workers) {
+      try { w.terminate(); } catch (e) { /* already gone, fine */ }
+    }
+    process.exit(130);
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
 main();
