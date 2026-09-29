@@ -51,9 +51,19 @@ function tryShearedLattice(tiles, flags) {
   for (const lat of reps) {
     const res = searchLattice(ct, lat, { budget: shearedBudget });
     if (res.result) {
-      const { map } = solutionToDomain(ct, lat, res.solution);
+      const { domain, map } = solutionToDomain(ct, lat, res.solution);
       const v = verifyPeriodicSolution(tiles, flags, lat, map);
-      if (v.ok) return { resolved: true, lattice: lat };
+      if (v.ok) {
+        return {
+          resolved: true,
+          lattice: lat,
+          patch: {
+            periodVectors: [[lat.P, 0], [lat.s, lat.Q]],
+            fundamentalDomainSize: { P: lat.P, Q: lat.Q },
+            domain,
+          },
+        };
+      }
     }
   }
   return { resolved: false };
@@ -104,7 +114,7 @@ function trySatPatch(tiles, flags) {
         const r2 = tryShearedLattice(tiles, flags);
         if (r2.resolved) {
           counts.periodic++; stageCounts.shearedPeriodic++;
-          bufPeriodic.push(JSON.stringify({ ...base, resolvedBy: 'sheared-lattice', lattice: r2.lattice }) + '\n');
+          bufPeriodic.push(JSON.stringify({ ...base, resolvedBy: 'sheared-lattice', lattice: r2.lattice, patch: r2.patch }) + '\n');
         } else {
           // Stage 3: vertex-star filter
           const r3 = vertexStarPrune(tiles, flags);

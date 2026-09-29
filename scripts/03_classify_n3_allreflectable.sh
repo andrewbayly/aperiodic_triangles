@@ -72,49 +72,62 @@ fi
 # input rather than assumed to match exactly): confirmed periodic here;
 # candidates remain in still_candidates_after_torus_recheck.jsonl.
 
-# --- 4. dedupe the residual under the full symmetry group (σ+ρ) ----------
+# --- 4. resolve every raw residual candidate directly: fast-classify ----
+#        -> sheared-lattice -> vertex-star -> SAT patch-infeasibility
+#        (same cascade proven at scale on the chiral/mixed buckets in
+#        stages 06-08 below, applied here to every raw candidate on its
+#        own -- NOT via orbit-dedup + expand).
+#
+# 2026-09-29: this replaces the former steps 4-6 (canonical_full.js
+# --dedupe -> full_resolve_multicore.js on orbit reps -> expand_orbit_
+# results.js). That path was found to silently discard every resolved
+# tileset's periodicity certificate: expand_orbit_results.js's expansion
+# step re-emits each raw member's *original pre-dedup candidate record*,
+# not the orbit's resolved lattice/patch data (see TODO.md, "Planned: one
+# full fresh re-run"). Rather than teach the expansion step to carry
+# certificate data through a symmetry-orbit representative back out to
+# every raw member it stands in for (correct, but a second nontrivial
+# thing to get right), we drop the dedup optimization for this residual
+# entirely: solve all 17,524 raw candidates independently, exactly the
+# way buckets 0-2 already do in stages 06-08. Orbit dedup here was only
+# ever a performance optimization (17,524 raw -> 1,191 orbits), and at
+# this residual's size the direct approach is cheap enough not to need
+# it. canonical_full.js and expand_orbit_results.js stay in the repo --
+# they're still used elsewhere (chiral_variants_worker.js) -- they're
+# just not called in this particular path any more.
 if [ ! -f .step4_done ]; then
-  node "$REPO_ROOT/canonical_full.js" --dedupe still_candidates_after_torus_recheck.jsonl residual
-  touch .step4_done
-fi
-# Expected: raw candidates -> distinct orbits (residual_unique.jsonl, residual_orbits.jsonl)
-
-# --- 5. resolve every orbit: fast-classify -> sheared-lattice -----------
-#        -> vertex-star -> SAT patch-infeasibility (same cascade proven
-#        at scale on the chiral/mixed buckets in stages 06-08 below)
-if [ ! -f .step5_done ]; then
-  split_chunks residual_unique.jsonl chunks/residual
+  split_chunks still_candidates_after_torus_recheck.jsonl chunks/residual
   node "$REPO_ROOT/full_resolve_multicore.js" \
     --chunk-prefix chunks/residual --workers "$WORKERS" \
     --output resolve_output --default-flags true,true,true \
     --cadical-bin "$CADICAL_BIN"
-  touch .step5_done
+  touch .step4_done
+fi
+# Output (per worker, in resolve_output/): periodic_w<id>.jsonl,
+# non_tiler_w<id>.jsonl, still_unresolved_w<id>.jsonl -- each resolved
+# periodic record now carries its full patch/lattice certificate
+# (fast-classify's own patch, or sheared-lattice's patch per the
+# full_resolve_worker.js fix), no expansion step needed since every
+# record processed here already *is* a raw tileset, not an orbit rep.
+
+# --- 5. verify 0 unresolved (same pattern as _resolve_bucket.sh) --------
+UNRESOLVED_N3=$(cat resolve_output/still_unresolved_w*.jsonl 2>/dev/null | wc -l | tr -d ' ')
+if [ "$UNRESOLVED_N3" -ne 0 ]; then
+  echo "ERROR: $UNRESOLVED_N3 n=3 all-reflectable residual candidates still unresolved after full cascade -- see resolve_output/still_unresolved_w*.jsonl" >&2
+  exit 2
 fi
 
-# --- 6. expand orbit verdicts back to raw-tileset records, verify 0 unresolved
-# (needed as real per-record input for stage 04, not just a count -- two
-# raw tilesets in the same orbit still need their own chiral variants
-# generated separately; see expand_orbit_results.js's header comment)
-node "$REPO_ROOT/expand_orbit_results.js" \
-  still_candidates_after_torus_recheck.jsonl residual_orbits.jsonl resolve_output final
-# expand_orbit_results.js exits 2 if unresolvedRaw > 0, which stops this
-# script via `set -e`.
-
 mkdir -p "$RESULTS/n3_allreflectable"
-cp final_summary.json "$RESULTS/n3_allreflectable/"
-cp residual_orbits.jsonl residual_unique.jsonl "$RESULTS/n3_allreflectable/" 2>/dev/null || true
 
-# --- 7. combine the original sweep + torus-recheck + residual into one
-#        TRUE top-line summary for this whole all-reflectable category.
-#        final_summary.json's own periodicRaw/nonTilerRaw describe only the
-#        17,524-item residual, NOT the full ~82.2M sweep -- conflating the
-#        two previously caused scripts/10_summarize_results.sh to badly
-#        under-report this row (see TODO.md, "Data-quality bugs found
-#        verifying the final run", added 2026-09-29).
-if [ ! -f .step7_done ]; then
+# --- 6. combine the original sweep + torus-recheck + direct-resolve into
+#        one TRUE top-line summary for this whole all-reflectable
+#        category. combine_n3_allreflectable_summary.js was rewritten
+#        2026-09-29 to read resolve_output/ directly instead of the now-
+#        defunct final_summary.json (the old orbit-dedup path's output).
+if [ ! -f .step6_done ]; then
   node "$REPO_ROOT/combine_n3_allreflectable_summary.js" . "$RESULTS/n3_allreflectable/summary.json"
-  touch .step7_done
+  touch .step6_done
 fi
 
 mark_done "03_classify_n3_allreflectable"
-echo "[03_classify_n3_allreflectable] done -- combined summary at $RESULTS/n3_allreflectable/summary.json (residual-only detail still at final_summary.json)"
+echo "[03_classify_n3_allreflectable] done -- combined summary at $RESULTS/n3_allreflectable/summary.json (per-record certificates in resolve_output/periodic_w*.jsonl)"
