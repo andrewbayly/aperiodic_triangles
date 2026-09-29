@@ -8,6 +8,8 @@ WORK="$REPO_ROOT/working"
 RESULTS="$REPO_ROOT/results"
 MARKERS="$WORK/.markers"
 CADICAL_BIN="$REPO_ROOT/../cadical/build/cadical"
+DRAT_TRIM_SRC="$REPO_ROOT/../drat-trim"
+DRAT_TRIM_BIN="$DRAT_TRIM_SRC/drat-trim"
 
 mkdir -p "$WORK" "$RESULTS" "$MARKERS"
 
@@ -58,6 +60,29 @@ require_cadical() {
     echo "ERROR: CaDiCaL binary not found at $CADICAL_BIN" >&2
     echo "Run scripts/00_build_cadical.sh first." >&2
     exit 1
+  fi
+}
+
+# Only stage 09 needs drat-trim, so unlike CaDiCaL (needed from stage 03
+# onward, built up front by scripts/00_build_cadical.sh), it's built lazily
+# here on first use rather than as its own numbered stage -- one fewer
+# thing to remember in "Initial setup" for the common case of not yet
+# caring about DRAT certificates. Requires ../drat-trim to already be
+# cloned (see README.md's "Initial setup"), same convention as CaDiCaL
+# requiring ../cadical to already be cloned.
+require_drat_trim() {
+  if [ ! -x "$DRAT_TRIM_BIN" ]; then
+    if [ ! -d "$DRAT_TRIM_SRC" ]; then
+      echo "ERROR: expected $DRAT_TRIM_SRC to exist." >&2
+      echo "  cd $REPO_ROOT/.. && git clone https://github.com/marijnheule/drat-trim.git" >&2
+      exit 1
+    fi
+    echo "Building drat-trim..."
+    ( cd "$DRAT_TRIM_SRC" && make )
+    if [ ! -x "$DRAT_TRIM_BIN" ]; then
+      echo "ERROR: build finished but $DRAT_TRIM_BIN still not found -- check drat-trim's build output above." >&2
+      exit 1
+    fi
   fi
 }
 

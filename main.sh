@@ -53,11 +53,13 @@ if [ "$FRESH" = "1" ]; then
   rm -rf ./working ./results
 fi
 
-STAGES="00 01 02 03 04 05 06 07 08 10"
-# Stage 09 (SAT certificate/DRAT verification) is intentionally NOT in the
-# default sequence -- it's a not-yet-built tool (see scripts/09_*.sh), and
-# a full run should reach a real, complete result rather than fail at a
-# placeholder. Run it explicitly once it exists: sh scripts/09_*.sh
+STAGES="00 01 02 03 04 05 06 07 08 09 10"
+# 2026-09-29: stage 09 (SAT certificate/DRAT verification) is now a real
+# tool (see scripts/09_verify_sat_certificates.sh) and included in the
+# default sequence. It reads stages 06-08's (and 03's) already-finished
+# non_tiler_w*.jsonl output rather than participating in classification
+# itself, so it's safe to run after them; classification correctness
+# (stages 00-08) does not depend on it.
 
 for s in $STAGES; do
   if [ "$s" -lt "$FROM" ]; then continue; fi

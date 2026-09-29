@@ -28,6 +28,8 @@ usage" further down instead.
 ```
 <some-directory>/
   cadical/              -- third-party SAT solver, built once
+  drat-trim/            -- third-party DRAT proof checker, built once
+                           (only needed for stage 09; see "Initial setup")
   aperiodic_triangles/  -- this repo
     main.sh
     scripts/            -- numbered pipeline stages, see below
@@ -48,6 +50,13 @@ git clone https://github.com/arminbiere/cadical.git
 # Pin a commit for reproducibility rather than tracking a moving branch tip
 # (this is the commit used for the paper's results -- tag rel-3.0.1):
 ( cd cadical && git checkout c60730422e758ef1cebe7aeddf2dda31c996bf04 )
+
+# Only needed for stage 09 (DRAT certificate verification) -- clone it now
+# if you want a from-scratch run to cover that stage too; scripts/09_*.sh
+# builds the binary itself on first use (see scripts/_common.sh's
+# require_drat_trim()), same as cadical's build is a separate step from
+# cloning it above.
+git clone https://github.com/marijnheule/drat-trim.git
 
 git clone https://github.com/andrewbayly/aperiodic_triangles.git
 cd aperiodic_triangles
@@ -114,19 +123,22 @@ Silicon Mac. Your numbers will scale with core count and clock speed.
 | 06 | Resolve bucket 0 (all-chiral) | ~1h |
 | 07 | Resolve bucket 1 (1 reflectable tile) | ~5h52m |
 | 08 | Resolve bucket 2 (2 reflectable tiles) | ~14h27m |
-| 09 | *(not yet implemented)* DRAT certificate batch verification | — |
+| 09 | DRAT certificate batch verification (SAT-patch non-tilers only) | depends on how many sat-patch verdicts exist; a small fraction of stages 06-08's totals (see "Quick benchmark: CaDiCaL vs Kissat" in `TODO.md` for scale) |
 | 10 | Write `results/SUMMARY.md` | seconds |
 
 Total is multi-day, dominated by stages 03, 07, and 08. `main.sh` doesn't
 parallelize *across* stages (04 needs 03's output, etc.), only within
 each stage via `--workers`.
 
-Stage 09 is deliberately excluded from `main.sh`'s default run (see
-`scripts/09_verify_sat_certificates.sh` -- it's a placeholder for work
-tracked in `TODO.md`, not a broken step). The classification result
-itself is already complete and correct after stage 08; stage 09 will add
-archivable DRAT proofs for the paper's reproducibility appendix once
-built.
+Stage 09 reads stages 06-08's (and 03's) already-finished
+`non_tiler_w*.jsonl` output rather than participating in classification
+itself: it re-derives a DRAT proof for every SAT-patch-infeasibility
+non-tiler verdict (not the vertex-star ones, which keep their existing
+combinatorial argument -- see `TODO.md`, "Certificate rigor") and checks
+each proof with `drat-trim`. The classification result itself is already
+complete and correct after stage 08; stage 09 only adds independent,
+archivable proof certificates for the paper's reproducibility appendix,
+under `working/09_certificates/verify_output/proofs/`.
 
 ### Disk space
 

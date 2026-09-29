@@ -16,6 +16,7 @@ N3_ALLREFL="$RESULTS/n3_allreflectable/summary.json"
 B0="$RESULTS/n3_bucket0/summary.json"
 B1="$RESULTS/n3_bucket1/summary.json"
 B2="$RESULTS/n3_bucket2/summary.json"
+CERTS="$RESULTS/certificates/summary.json"
 
 {
   echo "# Minimality classification: final results"
@@ -51,6 +52,17 @@ B2="$RESULTS/n3_bucket2/summary.json"
   echo "Combined with the n=4 all-reflectable aperiodic witness, this"
   echo "establishes n=4 as the smallest possible genuinely aperiodic"
   echo "edge-matching triangle tileset."
+  if [ -f "$CERTS" ]; then
+    echo
+    TR=$(get "$CERTS" totalRecords); V=$(get "$CERTS" verified); F=$(get "$CERTS" failed)
+    echo "### SAT patch-infeasibility certificates (stage 09)"
+    echo
+    echo "$V of $TR SAT-patch-infeasibility non-tiler verdicts independently"
+    echo "verified via a DRAT proof checked with drat-trim ($F failed)."
+    echo "Vertex-star non-tilers and all periodic verdicts need no DRAT proof"
+    echo "(see TODO.md, \"Certificate rigor\"); proof files are archived under"
+    echo "\`working/09_certificates/verify_output/proofs/\`."
+  fi
 } > "$RESULTS/SUMMARY.md"
 
 mark_done "10_summarize_results"
