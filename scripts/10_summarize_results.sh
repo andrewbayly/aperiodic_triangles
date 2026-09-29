@@ -12,7 +12,7 @@ get() { node -e "try{const j=JSON.parse(require('fs').readFileSync('$1','utf8'))
 
 N1="$RESULTS/n1/summary.json"
 N2="$RESULTS/n2/summary.json"
-N3_ALLREFL="$RESULTS/n3_allreflectable/final_summary.json"
+N3_ALLREFL="$RESULTS/n3_allreflectable/summary.json"
 B0="$RESULTS/n3_bucket0/summary.json"
 B1="$RESULTS/n3_bucket1/summary.json"
 B2="$RESULTS/n3_bucket2/summary.json"
@@ -35,7 +35,7 @@ B2="$RESULTS/n3_bucket2/summary.json"
     echo "| 2 | from \`main.js --n 2\` | $P | $NT | $U |"
   fi
   if [ -f "$N3_ALLREFL" ]; then
-    P=$(get "$N3_ALLREFL" periodicRaw); NT=$(get "$N3_ALLREFL" nonTilerRaw); U=$(get "$N3_ALLREFL" unresolvedRaw)
+    P=$(get "$N3_ALLREFL" periodic); NT=$(get "$N3_ALLREFL" nonTiler); U=$(get "$N3_ALLREFL" unresolved)
     echo "| 3 | all-reflectable (3/3) | $P | $NT | $U |"
   fi
   for b in 0 1 2; do

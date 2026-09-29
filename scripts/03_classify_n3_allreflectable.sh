@@ -104,5 +104,17 @@ mkdir -p "$RESULTS/n3_allreflectable"
 cp final_summary.json "$RESULTS/n3_allreflectable/"
 cp residual_orbits.jsonl residual_unique.jsonl "$RESULTS/n3_allreflectable/" 2>/dev/null || true
 
+# --- 7. combine the original sweep + torus-recheck + residual into one
+#        TRUE top-line summary for this whole all-reflectable category.
+#        final_summary.json's own periodicRaw/nonTilerRaw describe only the
+#        17,524-item residual, NOT the full ~82.2M sweep -- conflating the
+#        two previously caused scripts/10_summarize_results.sh to badly
+#        under-report this row (see TODO.md, "Data-quality bugs found
+#        verifying the final run", added 2026-09-29).
+if [ ! -f .step7_done ]; then
+  node "$REPO_ROOT/combine_n3_allreflectable_summary.js" . "$RESULTS/n3_allreflectable/summary.json"
+  touch .step7_done
+fi
+
 mark_done "03_classify_n3_allreflectable"
-echo "[03_classify_n3_allreflectable] done -- summary at $RESULTS/n3_allreflectable/final_summary.json"
+echo "[03_classify_n3_allreflectable] done -- combined summary at $RESULTS/n3_allreflectable/summary.json (residual-only detail still at final_summary.json)"
