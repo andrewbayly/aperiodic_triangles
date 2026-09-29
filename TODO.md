@@ -79,17 +79,20 @@ the paper, not open mathematical/computational questions.
       resolves already-deduped records (classify → sheared-lattice →
       vertex-star → SAT), it doesn't dedupe them. No inline or alternate
       canonicalization logic found anywhere in the two files reviewed.
-- [ ] Audit `check_unmatchable.js`/`canonical_full.js`/`vertex_star_check.js`/
+- [x] Audit `check_unmatchable.js`/`canonical_full.js`/`vertex_star_check.js`/
       `js_sat_bridge.js` once more specifically against chiral and mixed
       n=3 patterns once those campaigns are running (all were built or
       re-confirmed to be reflectableFlags-aware this session, but the n=3
       scale is the real stress test).
-      **IN PROGRESS 2026-09-28** — this is exactly what stages 05-08 (the
-      bucket 0/1/2 chiral/mixed campaigns) running right now constitute.
-      Resolves automatically as a byproduct: `_resolve_bucket.sh` hard-fails
-      (exit 2) if any bucket finishes with `unresolved > 0`, so a clean run
-      across all three buckets *is* the audit passing. Holding this item
-      open until 06/07/08 finish and report their final unresolved counts.
+      **Closed 2026-09-29 — all three buckets passed.** Bucket 0 (stage 06):
+      9,690,837 periodic / 4,016,654 non-tiler / 0 unresolved. Bucket 1
+      (stage 07): 31,952,812 periodic / 8,480,055 non-tiler / 0 unresolved.
+      Bucket 2 (stage 08): 35,811,203 periodic / 4,515,194 non-tiler / 0
+      unresolved. All arithmetic cross-checks (fast+sheared=periodic,
+      fast+vertexStar+sat=nonTiler, and each bucket's periodic+nonTiler
+      matching its stage-05 total exactly) confirmed on every worker of
+      every bucket. `_resolve_bucket.sh`'s own hard-fail-on-unresolved
+      check never triggered anywhere — the audit passes.
 
 ## Extend the pure-JS SAT bridge
 
@@ -104,36 +107,113 @@ the paper, not open mathematical/computational questions.
       DRAT/SAT proof at all — direct substitution suffices. Adding
       SAT-based periodicity support would just duplicate rigor already
       covered a simpler way.
-- [ ] Quick benchmark: CaDiCaL vs Kissat on our actual instance mix.
-      **Deprioritized 2026-09-28.** Kissat (same author as CaDiCaL, often
-      faster specifically on UNSAT-heavy workloads — relevant since every
-      call here checks infeasibility) could speed things up, but the
-      classification runtime cost is already paid and correctness doesn't
-      depend on which solver is used. Only remaining place solver speed
-      has leverage is stage 09 (DRAT batch generation), if that requires
-      re-solving non-tiler instances at scale. Revisit alongside stage 09
-      work, not before.
-- [ ] Re-run the full residual verification (all 1,191 orbits: 352 periodic
+- [x] Quick benchmark: CaDiCaL vs Kissat on our actual instance mix.
+      **Closed 2026-09-29 — not worth pursuing, not even for stage 09.**
+      For the completed classification stages (06-08), SAT resolution was
+      ~0.0125% of shapes by count (11,788 of 94,466,755) and, extrapolating
+      from the residual sweep's own ~30ms/shape benchmark in
+      `command_log.md`, well under an hour of a combined ~21h runtime —
+      Amdahl's law caps any possible Kissat speedup there at a few minutes,
+      not worth benchmarking. For stage 09 specifically, where SAT calls
+      *are* ~100% of the work: decided against introducing a second solver
+      dependency on spec. CaDiCaL is already built, pinned, and *proven* in
+      this project to produce working DRAT proofs end-to-end
+      (`command_log.md`, and stage 09's own implementation below) — adding
+      Kissat purely for a hypothetical, unmeasured speedup would complicate
+      the reproducibility story (a second binary to build and pin a commit
+      for) for no confirmed benefit. Default to CaDiCaL for stage 09 too;
+      only reconsider Kissat reactively, if CaDiCaL's actual measured
+      stage-09 runtime turns out to be a real bottleneck once run at scale —
+      not proactively on a guess.
+- [x] Re-run the full residual verification (all 1,191 orbits: 352 periodic
       + 839 non-tiler) through the pure-JS bridge, so the final result
       doesn't depend on the Python cross-check at all — just uses it as
       history/provenance.
-      **Deferred 2026-09-28** — independent of the bucket 0/1/2 run
-      currently in progress; revisit after that run completes.
+      **Closed 2026-09-29 — already satisfied, no new computation needed.**
+      Of the 839 non-tiler orbits, only the 781 historically resolved via
+      Python (`sat_patch_sweep.py`/pysat, per `command_log.md`'s "SAT-based
+      resolution" session) ever depended on Python; the 352 periodic (pure-JS
+      sheared-lattice sweep) and 58 non-tiler (pure-JS vertex-star filter)
+      never did. Checked whether the actual completed reproducible run
+      (stage 03's step 5, `full_resolve_multicore.js` over all 1,191
+      orbits — predates the Option B redesign above, which only affects
+      future fresh runs) already re-derived those 781 via its own SAT-patch
+      stage (`js_sat_bridge.js`/CaDiCaL, not Python) as a side effect of
+      normal pipeline execution: `grep -o '"resolvedBy":"[a-z-]*"'
+      resolve_output/non_tiler_w*.jsonl | sort | uniq -c` on the user's
+      machine gave exactly 781 `sat-patch` + 58 `vertex-star` = 839,
+      matching the historical split precisely. Every one of the 781
+      previously-Python-only verdicts has already been independently
+      reconfirmed via the pure-JS/CaDiCaL path. Python is now purely
+      historical provenance, not a dependency of the published result.
+
+## Planned: one full fresh re-run, once everything below is batched in
+
+**Decided 2026-09-29.** Multiple fixes now on the list require actually
+regenerating classification output, not just re-deriving a summary from
+existing files. Per-worker checkpoints mean re-invoking a stage after a
+code fix does NOT re-run its classification logic for already-completed
+lines — `full_resolve_worker.js` (and the equivalent for buckets/residual)
+would just resume-to-instantly-done using the OLD output. Getting new
+behavior requires a genuine `--fresh` restart, which repeats the real
+~21+ hour cost for buckets 0/1/2 (plus stage 03's residual/torus-recheck
+tooling). Given that cost, the plan is: accumulate every pipeline-code
+change that needs a fresh run into one batch, THEN do a single
+`main.sh --workers 8 --fresh` covering all of them at once, rather than
+paying the cost per-fix. Do not run this yet.
+
+Items now landed in the codebase (both **code-complete, not yet run
+against real data** — see "Certificate rigor" and "Packaging" below for
+detail on each):
+- [x] **Persist periodicity certificate data instead of discarding it.**
+      `full_resolve_worker.js`'s `tryShearedLattice` now keeps the domain
+      assignment from `solutionToDomain` and returns it as a `patch` record
+      in the same shape used elsewhere (`periodVectors`,
+      `fundamentalDomainSize`, `domain`), instead of discarding it after
+      verification. `03_classify_n3_allreflectable.sh` was also redesigned
+      ("Option B"): the residual's orbit-dedup → `full_resolve_multicore.js`
+      (on orbit reps) → `expand_orbit_results.js` path — which was
+      silently discarding resolved certificates when expanding orbit
+      verdicts back to raw members — is replaced by a direct
+      `full_resolve_multicore.js` pass over all 17,524 raw candidates,
+      matching how buckets 0-2 already work. `combine_n3_allreflectable_summary.js`
+      rewritten to match (reads `resolve_output/` directly instead of the
+      now-removed `final_summary.json`). Committed 2026-09-29.
+- [x] **Stage 09 (DRAT generation + batch verification) built.** See
+      "Certificate rigor" and "Packaging" below — real implementation now
+      exists and is wired into `main.sh`'s default stage list. Verified
+      end-to-end with real CaDiCaL + drat-trim binaries on synthetic data;
+      not yet run against the actual pipeline's real non-tiler output.
+
+**After the fresh run:** re-verify buckets 0/1/2 the same way as before
+(arithmetic cross-checks, unresolved=0, ratios in the expected range) —
+verdicts should reproduce identically to this run, only the certificate
+data should be new/different, and stage 09 will produce real archived
+DRAT proofs instead of the synthetic-data test run. Re-run
+`10_summarize_results.sh` too and confirm `SUMMARY.md` still matches
+(it will now also include the certificate-verification section).
 
 ## Certificate rigor (the DRAT upgrade)
 
-- [ ] Generate and archive a DRAT proof for every non-tiler certificate
+- [x] Generate and archive a DRAT proof for every non-tiler certificate
       found via patch infeasibility (currently only spot-checked one).
-      **Held 2026-09-28** — implementation deferred until after the
-      current bucket 0/1/2 run finishes (serializing actual stage 09
-      build work behind the run rather than competing with it for
-      cores/attention). Scope now excludes the 58 vertex-star non-tilers
-      per the decision below — only SAT-patch-infeasibility certificates
-      need a DRAT proof.
-- [ ] Batch-verify all DRAT proofs with `drat-trim` (or a modern LRAT
+      **Built 2026-09-29** — `gather_sat_certificates.js` +
+      `verify_sat_certificates_multicore.js`/`..._worker.js`, wired into
+      `scripts/09_verify_sat_certificates.sh`. Scope excludes the 58
+      vertex-star non-tilers per the decision below — only
+      SAT-patch-infeasibility certificates get a DRAT proof. Verified
+      end-to-end against real CaDiCaL + drat-trim binaries (built from
+      source in a scratch environment) on both a real SAT-patch UNSAT case
+      and the trivially-unsat (radius 0, no CNF ever built) edge case; not
+      yet run against the real pipeline's actual non-tiler output — that
+      happens as part of the batched fresh re-run above.
+- [x] Batch-verify all DRAT proofs with `drat-trim` (or a modern LRAT
       checker) — this becomes the artifact's actual proof-checking step.
-      **Held 2026-09-28**, same reason — depends on the item above
-      existing first.
+      **Built 2026-09-29**, same implementation as above —
+      `verify_sat_certificates_worker.js` calls `js_sat_bridge.js`'s
+      `verifyDrat()` (which wraps `drat-trim`) on every generated proof;
+      stage 09 exits nonzero (exit 2) if anything fails to verify, matching
+      `_resolve_bucket.sh`'s hard-fail pattern.
 - [x] Decide: do the 58 vertex-star non-tilers stay as a separate
       mathematical argument, or get re-derived via patch-SAT too?
       **Decided 2026-09-28: keep vertex-star separate.** Two independently
@@ -141,20 +221,74 @@ the paper, not open mathematical/computational questions.
       inconsistency — worth more to the paper than presentational
       uniformity, and avoids re-deriving something already proven correct
       purely for format's sake. Consequence: stage 09's DRAT tooling only
-      needs to cover the SAT-patch-infeasibility non-tilers (781 orbits /
-      the rest of bucket 0/1/2's non-tiler output), not the 58 vertex-star
-      orbits, which keep their existing combinatorial argument as their
-      certificate.
+      needs to cover the SAT-patch-infeasibility non-tilers, not the 58
+      vertex-star orbits, which keep their existing combinatorial argument
+      as their certificate.
 - [ ] For periodic certificates: no DRAT needed (a periodic tiling is
-      trivially checkable by direct substitution) — just make sure each of
-      the 352 explicit tilings is exported in a clean, directly-verifiable
-      format (period vectors + full assignment over one fundamental domain).
-      **Deferred 2026-09-28, serialized until after the current bucket
-      0/1/2 run finishes.** Scope has grown: the current run's own
-      periodic resolutions (via `sheared-lattice` in `full_resolve_worker.js`,
-      same `solutionToDomain`/`verifyPeriodicSolution` machinery) will also
-      need exporting, so this should be built once against the full
-      combined set rather than run twice.
+      trivially checkable by direct substitution) — just make sure each
+      explicit tiling is exported in a clean, directly-verifiable format
+      (period vectors + full assignment over one fundamental domain).
+      **Still blocked** on the fresh re-run above: exporting requires every
+      periodic record to reliably carry a full domain assignment, which the
+      certificate-persistence fix (this session) makes true going forward
+      but doesn't retroactively fix in already-completed output. Build the
+      actual exporter once the fresh run's output exists.
+
+## Data-quality bugs found verifying the final run (2026-09-29)
+
+- [x] **`scripts/10_summarize_results.sh`'s "3 | all-reflectable (3/3)" row
+      was wrong, not just stale.** It read `periodicRaw`/`nonTilerRaw` from
+      `results/n3_allreflectable/final_summary.json`, which
+      `expand_orbit_results.js` only ever computed over the 17,524-item
+      *residual* (stage 03 steps 3-6) — never the original ~82.2M sweep's
+      `periodic_w*.jsonl`/`non_tiler_w*.jsonl` from step 1. Under-reported
+      periodic by roughly 2,300x for this row. The 0-unresolved claim
+      itself was still correct (checked separately), only the reported
+      breakdown was broken.
+      **Fixed**: `combine_n3_allreflectable_summary.js` (repo root, later
+      rewritten again for the Option B residual redesign above) +
+      `scripts/03_classify_n3_allreflectable.sh` (writes
+      `results/n3_allreflectable/summary.json` with the true combined
+      totals) + `scripts/10_summarize_results.sh` (reads that file's
+      `periodic`/`nonTiler`/`unresolved` fields instead of
+      `final_summary.json`'s residual-only fields). Hit
+      `ERR_STRING_TOO_LONG` in an early version of the summary script (used
+      `fs.readFileSync` + `.split('\n')` against the large original-sweep
+      files) — fixed by switching to a `readline`-over-a-stream line
+      counter, matching `gather_periodic_parents.js`'s established
+      convention for large JSONL files.
+      **Verified fixed:** re-ran with `WORKERS=8`, `SUMMARY.md` showed
+      periodic=13,707,491 / nonTiler=68,244,320 for this row. Cross-checked:
+      13,707,491+68,244,320+251,721 (skipped duplicates) = 82,203,532,
+      exactly the original sweep's total shape count. Closed.
+- [x] **n=2's reported total didn't match the known canonical count, by
+      exactly 276 (= n=1's total shape count).** `SUMMARY.md` showed 18,788
+      periodic + 107,585 non-tiler = 126,373, vs. the known total of
+      126,649. Cause: duplicate-tile filtering routes duplicate-tile 2-tile
+      shapes to `skipped_duplicate_w*.jsonl`, but
+      `scripts/02_classify_n2.sh`'s summary computation only counted
+      `periodic_w*`/`non_tiler_w*`/`aperiodic_candidates_w*`, never
+      `skipped_duplicate_w*`, so those shapes silently vanished from the
+      reported total.
+      **Fixed:** `02_classify_n2.sh` updated to also count and report its
+      skipped-duplicate file, plus a warning check (exit if the total
+      doesn't match 126,649).
+      **Verified fixed:** `SUMMARY.md` showed periodic=18,788 /
+      nonTiler=107,585 (126,373), + 276 skipped duplicates (tracked
+      separately) = 126,649 exactly, the known canonical total. No warning
+      fired. Closed.
+
+      **Bonus finding while reconciling totals:** the full n=3 grand total
+      across all 4 reflectable patterns is 176,418,566 today vs. the
+      historical 176,819,182 in `command_log.md` — a gap of exactly
+      400,616. Fully explained, not a new issue: 251,607 from the
+      all-reflectable row's duplicate-tile filtering (251,721 newly-skipped
+      shapes, minus 114 that historically got resolved-and-discarded via
+      the old reprocessing step instead) + 31,938/58,489/58,582 from
+      buckets 0/1/2 each having proportionally fewer periodic parents to
+      generate variants from (13,707,491 today vs. 13,739,429 historical).
+      Sums to exactly 400,616. No action needed — belongs with the
+      "Recompute and finalize top-line numbers" paper-stage task below.
 
 ## Recompute and finalize top-line numbers
 
@@ -166,13 +300,19 @@ write-up begins.
 - [ ] The blocking reflectableFlags question is now resolved and the full
       symmetry group (σ+ρ) is used everywhere; still need to recompute the
       final "official" orbit counts (as opposed to raw tileset counts) for
-      n=1/n=2/n=3 to report in the paper. Current raw tileset totals:
-      n=1 = 276 (2 patterns), n=2 = 126,649 (3 patterns), n=3 = 176,819,182
-      (4 patterns, all-reflectable + 2/1/0-reflectable combined) — all with
-      0 aperiodicity candidates. Orbit-level (canonical, σ+ρ-deduped)
-      counts still need consolidating across all patterns per n. Also
-      affected by the current bucket 0/1/2 run's own results, so cannot be
-      finalized before that completes regardless of write-up timing.
+      n=1/n=2/n=3 to report in the paper. Orbit-level (canonical,
+      σ+ρ-deduped) counts still need consolidating across all patterns per n.
+      **Update 2026-09-29, run now complete:** the n=3 total quoted above
+      in the header (176,819,182) is the *historical* figure and no longer
+      matches the actual completed run's output (176,418,566) — see
+      "Data-quality bugs found" above for the full 400,616-shape
+      reconciliation (all accounted for by the duplicate-tile-filtering
+      improvement). Use 176,418,566 (or better, recompute directly from
+      `results/SUMMARY.md` plus the 251,721+276 tracked skipped-duplicate
+      counts) as the starting point here, not the stale 176,819,182. Also
+      still affected by the planned fresh re-run above (verdicts should
+      reproduce identically, but don't treat this as fully final until
+      that run confirms it).
 - [ ] Decide how much of this session's report-cross-check work (Theorem 1
       verification, `enum.c` comparison, index-13 rigidity reproduction)
       belongs in the paper itself (e.g. as independent verification of a
@@ -200,10 +340,15 @@ write-up begins.
       placeholder `<commit-sha-used-in-the-paper>` inside the
       `git checkout <...>` line (README.md, "Initial setup" code block) has
       been replaced with this SHA.
-- [ ] Stage 09 (DRAT batch verification) is a placeholder that exits
+- [x] Stage 09 (DRAT batch verification) is a placeholder that exits
       nonzero on purpose — build the real tool (see "Certificate rigor"
       above) and wire it into `main.sh`'s default stage list once it
       exists.
+      **Closed 2026-09-29.** Real implementation built and added to
+      `main.sh`'s default `STAGES` list. `scripts/10_summarize_results.sh`
+      updated to include a certificate-verification section in
+      `SUMMARY.md` when stage 09 has run. Not yet run against real
+      pipeline data — batched into the planned fresh re-run above.
 - [ ] `chiral_variants_multicore.js` (stage 05) has no internal
       checkpointing of its own — if killed mid-run it restarts from
       scratch (~66 min at original scale, so low priority, but worth
