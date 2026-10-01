@@ -9,12 +9,18 @@
 // substitution. Only stage 4 (SAT patch-infeasibility) of the resolve
 // cascade in full_resolve_worker.js produces resolvedBy: 'sat-patch'.
 //
-// Usage: node gather_sat_certificates.js <out.jsonl>
-// Reads from (relative to cwd, expected to be the repo root):
-//   working/n3_variants/resolve_bucket0/non_tiler_w*.jsonl
-//   working/n3_variants/resolve_bucket1/non_tiler_w*.jsonl
-//   working/n3_variants/resolve_bucket2/non_tiler_w*.jsonl
-//   working/n3_allreflectable/resolve_output/non_tiler_w*.jsonl
+// Usage: node gather_sat_certificates.js <out.jsonl> <working-dir>
+// <working-dir> is the pipeline's top-level `working/` directory (i.e. $WORK
+// in scripts/_common.sh) -- NOT the current directory. This script is
+// invoked from scripts/09_verify_sat_certificates.sh after it has already
+// `cd`ed into $WORK/09_certificates/ (so sat_patch_records.jsonl lands
+// there), so the source directories below must be resolved against $WORK
+// explicitly rather than assumed relative to cwd. Reads from (relative to
+// <working-dir>):
+//   n3_variants/resolve_bucket0/non_tiler_w*.jsonl
+//   n3_variants/resolve_bucket1/non_tiler_w*.jsonl
+//   n3_variants/resolve_bucket2/non_tiler_w*.jsonl
+//   n3_allreflectable/resolve_output/non_tiler_w*.jsonl
 // (the last of these is stage 03's direct, no-orbit-dedup residual
 // resolution -- see 03_classify_n3_allreflectable.sh's step 4 comment.)
 //
@@ -26,17 +32,17 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const [, , outPath] = process.argv;
-if (!outPath) {
-  console.error('Usage: node gather_sat_certificates.js <out.jsonl>');
+const [, , outPath, workDir] = process.argv;
+if (!outPath || !workDir) {
+  console.error('Usage: node gather_sat_certificates.js <out.jsonl> <working-dir>');
   process.exit(1);
 }
 
 const SOURCES = [
-  'working/n3_variants/resolve_bucket0',
-  'working/n3_variants/resolve_bucket1',
-  'working/n3_variants/resolve_bucket2',
-  'working/n3_allreflectable/resolve_output',
+  path.join(workDir, 'n3_variants/resolve_bucket0'),
+  path.join(workDir, 'n3_variants/resolve_bucket1'),
+  path.join(workDir, 'n3_variants/resolve_bucket2'),
+  path.join(workDir, 'n3_allreflectable/resolve_output'),
 ];
 
 async function scanDir(dir, out) {

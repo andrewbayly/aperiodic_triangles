@@ -29,7 +29,7 @@ cd "$D"
 # --- 1. gather every sat-patch-resolved non-tiler record across buckets
 #        0/1/2 and the n=3 all-reflectable residual --------------------
 if [ ! -f .step1_done ]; then
-  node "$REPO_ROOT/gather_sat_certificates.js" sat_patch_records.jsonl
+  node "$REPO_ROOT/gather_sat_certificates.js" sat_patch_records.jsonl "$WORK"
   touch .step1_done
 fi
 
