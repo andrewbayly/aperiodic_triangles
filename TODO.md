@@ -375,6 +375,23 @@ write-up begins.
 
 ## Packaging
 
+- [x] **Write `DESIGN.md`.** A design doc taking a reader from the
+      problem statement through the architecture/design rationale to a
+      complete module list (every module in the codebase, short
+      description each), aimed at orienting the author and other
+      reviewers before they dive into the actual code (as opposed to
+      `README.md`'s how-to-run focus or `TODO.md`/`command_log.md`'s
+      session-by-session paper trail). **Written 2026-10-01**, covering:
+      problem statement, the lattice/label/symmetry model, the
+      Phase-A/Phase-B architecture split, the key design decisions (orderly
+      generation, the two canonicalization groups, why patch/torus
+      infeasibility are unconditional proofs, the sheared-lattice sweep,
+      the resolve-cascade cost ordering, checkpoint/resume discipline,
+      worker striding, the Option B residual redesign, and the certificate
+      scoping decision), a stage-by-stage pipeline table, data format
+      reference, and a full categorized module list including which tools
+      are exploratory/non-production. Should be kept roughly in sync with
+      `README.md`/`TODO.md` going forward but is allowed to lag.
 - [x] **Reproduction entry point built.** `main.sh` + `scripts/00`-`10_*.sh`
       + `REPRODUCE.md`, matching the two-repo layout (`cadical/` sibling +
       `aperiodic_triangles/`). Each stage is independently idempotent
