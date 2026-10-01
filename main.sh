@@ -53,13 +53,19 @@ if [ "$FRESH" = "1" ]; then
   rm -rf ./working ./results
 fi
 
-STAGES="00 01 02 03 04 05 06 07 08 09 10"
+STAGES="00 01 02 03 04 05 06 07 08 09 10 11"
 # 2026-09-29: stage 09 (SAT certificate/DRAT verification) is now a real
 # tool (see scripts/09_verify_sat_certificates.sh) and included in the
 # default sequence. It reads stages 06-08's (and 03's) already-finished
 # non_tiler_w*.jsonl output rather than participating in classification
 # itself, so it's safe to run after them; classification correctness
 # (stages 00-08) does not depend on it.
+# 2026-10-01: stage 10 (periodic certificate export + independent
+# verification, see scripts/10_verify_periodic_certificates.sh) is the
+# periodic-side counterpart to stage 09 and included the same way -- it
+# reads stages 01-08's already-finished periodic_w*.jsonl output, so it's
+# safe to run after them too. The final summary stage moved from 10 to 11
+# to make room.
 
 for s in $STAGES; do
   if [ "$s" -lt "$FROM" ]; then continue; fi

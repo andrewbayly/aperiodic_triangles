@@ -194,14 +194,23 @@ practice.
                                           │ periodic / non-tiler (0 unresolved)
                                           ▼
                      ┌─────────────────────────────────────────────────┐
-                     │  Stage 09: certificate generation + verification │
+                     │  Stage 09: non-tiler certificates                │
                      │  gather_sat_certificates.js ->                   │
                      │  verify_sat_certificates_multicore.js            │
                      │  (DRAT proof via CaDiCaL, checked by drat-trim)  │
                      └─────────────────────────────────────────────────┘
                                           │
                                           ▼
-                       results/SUMMARY.md (stage 10)
+                     ┌─────────────────────────────────────────────────┐
+                     │  Stage 10: periodic certificates                 │
+                     │  export_periodic_certificates.js ->              │
+                     │  verify_periodic_certificates_multicore.js       │
+                     │  (independent, no-shared-code re-verification;   │
+                     │   no external solver -- substitution only)       │
+                     └─────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+                       results/SUMMARY.md (stage 11)
 ```
 
 ## 4. Key design decisions
@@ -304,16 +313,26 @@ end. See `TODO.md`'s "Fresh re-run" and "Bugs found during the fresh run"
 sections for the concrete numeric discrepancy this surfaced and the
 reasoning for treating the new numbers as authoritative.
 
-**Certificates are scoped to where they add real rigor, not uniformly.**
-Only SAT-patch-infeasibility non-tiler verdicts get an archived DRAT proof
-(stage 09). Vertex-star non-tiler verdicts keep their existing
-combinatorial argument rather than being re-derived through SAT purely for
-presentational uniformity — two independently-implemented methods already
-agreeing is treated as corroborating evidence, not a gap to paper over.
-Periodic verdicts need no DRAT certificate at all, since a periodic tiling
-is directly, trivially checkable by substituting the fundamental domain
-and period vectors and confirming every edge matches — the proof format
-should match what the claim actually needs, not be applied indiscriminately.
+**Certificates are scoped to what each kind of claim actually needs, not
+applied uniformly.** Only SAT-patch-infeasibility non-tiler verdicts get an
+archived DRAT proof (stage 09). Vertex-star non-tiler verdicts keep their
+existing combinatorial argument rather than being re-derived through SAT
+purely for presentational uniformity — two independently-implemented
+methods already agreeing is treated as corroborating evidence, not a gap
+to paper over. Periodic verdicts need no DRAT proof at all, since a
+periodic tiling is a self-certifying witness (directly checkable by
+substituting the fundamental domain and period vectors and confirming
+every edge matches) — but "no DRAT proof needed" doesn't mean "no
+independent check needed": stage 10 re-verifies every one of the ~91.17M
+periodic records with `independent_periodic_verifier.js`, a from-scratch
+reimplementation sharing no code with `lattice.js`/`sheared_solver.js`, so
+a bug shared between the solver that produced the witness and whatever
+checks it can't hide from it. Decided against archiving a curated
+subset of periodic examples for the paper's appendix — at 91 million
+records, a handful of examples can't carry a completeness claim, so (same
+treatment as stage 09's DRAT proofs) the full readable export lives under
+`working/` and the paper-facing artifact is the aggregate "N of N
+independently verified" count in `SUMMARY.md`.
 
 **A note on what is *not* proven.** Nothing in this pipeline proves a
 tileset is genuinely aperiodic. "Aperiodic-candidate" means only that no
@@ -345,7 +364,8 @@ one-line-per-stage map of what each one *is*, for orientation.
 | 05 | `05_generate_chiral_variants.sh` | Generate every chiral/mixed-chirality variant of those parents, bucketed by reflectable-tile-count (0/1/2). |
 | 06–08 | `06_resolve_bucket0.sh` / `07_resolve_bucket1.sh` / `08_resolve_bucket2.sh` | Phase B resolution of buckets 0 (all-chiral), 1 (1 reflectable tile), 2 (2 reflectable tiles). The three largest stages by compute time. |
 | 09 | `09_verify_sat_certificates.sh` | Gather every SAT-patch-infeasibility non-tiler verdict across buckets 0–2 and the n=3 residual; regenerate and verify a DRAT proof for each. |
-| 10 | `10_summarize_results.sh` | Assemble every earlier stage's `results/*/summary.json` into the final `results/SUMMARY.md`. Re-derives nothing; purely reads what earlier stages already wrote. |
+| 10 | `10_verify_periodic_certificates.sh` | Export every periodic verdict (n=1, n=2, n=3 all four patterns) into readable notation and independently re-verify every one with a from-scratch, no-shared-code reimplementation of the matching/orientation rules. The periodic-side counterpart to stage 09; no external solver needed since a periodic witness is directly checkable by substitution. |
+| 11 | `11_summarize_results.sh` | Assemble every earlier stage's `results/*/summary.json` into the final `results/SUMMARY.md`. Re-derives nothing; purely reads what earlier stages already wrote. |
 
 ## 6. Data formats
 
@@ -405,6 +425,7 @@ invoked directly (`node <file>.js ...` or as a worker thread target);
 | `orderly.js` | Library/entry point. Orderly-generation Level 2: stabilizer computation and one-representative-per-orbit flavored-labeling enumeration for a given canonical subtype. `require.main` is a validation self-test (currently not runnable — see §9). |
 | `canonical_full.js` | Library/entry point. Canonical form under the *full* symmetry group (enumeration group + σ-flip + ρ-flip), chirality-correct. CLI: `--dedupe <in.jsonl> <prefix>` writes orbit representatives + member-index mapping; `--test` self-checks. |
 | `js_sat_bridge.js` | Library. Pure-JS bridge to an external CaDiCaL binary for hexagonal-patch SAT encoding (`buildCnf`, `writeDimacs`), solving (`runCadical`, with optional DRAT proof output), and DRAT verification (`verifyDrat`, wrapping `drat-trim`). |
+| `independent_periodic_verifier.js` | Library. Stage 10's from-scratch re-verification of a periodic certificate: its own neighbor-offset table, orientation/presentation formula, and matching rule (parsing the certificate's readable notation directly), plus the unfold-across-several-periods-and-check-every-seam algorithm. Deliberately shares no code with `lattice.js` or `sheared_solver.js`. Self-test (`node independent_periodic_verifier.js`) includes a brute-force search for a genuine witness plus a battery of deliberately corrupted variants. |
 
 ### 7.2 Multicore orchestrators and their workers
 
@@ -415,6 +436,7 @@ invoked directly (`node <file>.js ...` or as a worker thread target);
 | `chiral_variants_multicore.js` / `chiral_variants_worker.js` | Generates all 7 nonempty chirality-subset variants of each all-reflectable periodic parent, canonicalizes and dedupes within each parent, buckets by resulting reflectable-tile-count. |
 | `recheck_torus_unresolved_multicore.js` / `recheck_torus_unresolved_multicore_worker.js` | Targeted re-check of only each candidate's own previously-ambiguous torus sizes (not a uniform sweep), promoting genuinely periodic candidates. |
 | `verify_sat_certificates_multicore.js` / `verify_sat_certificates_worker.js` | Stage 09's certificate pipeline: regenerates each SAT-patch-infeasibility record's exact CNF, requests a DRAT proof from CaDiCaL, verifies it with `drat-trim`. |
+| `verify_periodic_certificates_multicore.js` / `verify_periodic_certificates_worker.js` | Stage 10's certificate pipeline: runs `independent_periodic_verifier.js` over every exported periodic certificate. No external binary dependency (pure JS substitution checking). |
 | `sheared_torus_multicore.js` / `sheared_torus_multicore_worker.js` | Standalone multi-core sheared-lattice sweep over a candidate file (predecessor of the sheared-lattice stage now folded into `full_resolve_worker.js`; not wired into `main.sh`). |
 | `deep_patch_push_multicore.js` / `deep_patch_push_multicore_worker.js` | Standalone parallel-by-(tileset,size) deep patch-infeasibility push for a small hard candidate set; tested, found low-leverage, not wired into `main.sh`. |
 | `reprocess_candidates_multicore.js` / `reprocess_candidates_multicore_worker.js` | Standalone re-classification of an existing candidates file against the current `classify()`; found to be a provable no-op once duplicate-tile filtering moved upstream, not wired into `main.sh`. |
@@ -425,6 +447,7 @@ invoked directly (`node <file>.js ...` or as a worker thread target);
 |---|---|
 | `gather_periodic_parents.js` | Merges all sources of n=3 all-reflectable periodic parents into one clean input file for chirality-variant generation. |
 | `gather_sat_certificates.js` | Scans buckets 0–2 and the residual for `resolvedBy: 'sat-patch'` non-tiler records, the only ones needing a DRAT certificate. |
+| `export_periodic_certificates.js` | Gathers every periodic record across all n=1/n=2/n=3-pattern sources and expands packed tile labels into readable class+flavor+partnership+pairing notation for stage 10. Self-test (`--test`) cross-checks the decode against `lattice.js`'s own `getPt`/`getPr`. |
 | `expand_orbit_results.js` | Expands a resolver's per-orbit verdicts back out to every raw member of the orbit via a `canonical_full.js --dedupe` orbit-membership file. (Historical — underlies the now-superseded "Option A" orbit-dedup residual path; see §4.) |
 | `combine_n3_allreflectable_summary.js` | Combines the original full sweep, the targeted torus recheck, and the direct residual resolution into one true n=3 all-reflectable summary. |
 | `compute_remaining_after_torus_recheck.js` | Computes the candidate set remaining after the targeted torus recheck (original input minus whatever got promoted to periodic). |
@@ -469,10 +492,11 @@ listed so their presence doesn't read as dead or forgotten code.
   and fresh pipeline runs (documented in detail in `TODO.md`, "Bugs found
   during the fresh run") is a decided-and-documented open item, not a
   blocking one — see that entry for the full reasoning.
-- Periodic-certificate export (a clean, directly-verifiable
-  period-vectors-plus-domain format for the paper's appendix, as opposed
-  to the internal JSONL shape) is unblocked but not yet built — see
-  `TODO.md`, "Certificate rigor."
+- Periodic certificate export and independent verification (stage 10) was
+  built this session but has only been exercised against a real n=1 run
+  (31/31 verified) and hand-built/brute-force synthetic cases, not yet
+  against the full ~91.17M-record production scale — that's the next
+  real run to watch once this lands. See `TODO.md`, "Certificate rigor."
 - `chiral_variants_multicore_worker.js` lacks the internal checkpointing
   the rest of the pipeline's workers have — a lower-priority gap, noted
   in `README.md`/`TODO.md`.

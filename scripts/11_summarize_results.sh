@@ -1,12 +1,12 @@
 #!/bin/sh
 # Pull together the final n<=3 minimality table from every stage's
 # summary file and write it to results/SUMMARY.md. Does not re-derive any
-# numbers -- just reads what stages 01-08 already wrote into $RESULTS.
+# numbers -- just reads what stages 01-10 already wrote into $RESULTS.
 set -e
 cd "$(dirname "$0")/.."
 . ./scripts/_common.sh
 
-skip_if_done "10_summarize_results"
+skip_if_done "11_summarize_results"
 
 get() { node -e "try{const j=JSON.parse(require('fs').readFileSync('$1','utf8'));console.log(j['$2']??'?')}catch(e){console.log('?')}"; }
 
@@ -17,11 +17,12 @@ B0="$RESULTS/n3_bucket0/summary.json"
 B1="$RESULTS/n3_bucket1/summary.json"
 B2="$RESULTS/n3_bucket2/summary.json"
 CERTS="$RESULTS/certificates/summary.json"
+PERIODIC_CERTS="$RESULTS/periodic_certificates/summary.json"
 
 {
   echo "# Minimality classification: final results"
   echo
-  echo "Generated $(date -u +%FT%TZ) by scripts/10_summarize_results.sh."
+  echo "Generated $(date -u +%FT%TZ) by scripts/11_summarize_results.sh."
   echo "Every row below is read from this run's own output files -- nothing"
   echo "here is a hardcoded historical number."
   echo
@@ -63,9 +64,21 @@ CERTS="$RESULTS/certificates/summary.json"
     echo "(see TODO.md, \"Certificate rigor\"); proof files are archived under"
     echo "\`working/09_certificates/verify_output/proofs/\`."
   fi
+  if [ -f "$PERIODIC_CERTS" ]; then
+    echo
+    TR=$(get "$PERIODIC_CERTS" totalRecords); V=$(get "$PERIODIC_CERTS" verified); F=$(get "$PERIODIC_CERTS" failed)
+    echo "### Periodic certificates (stage 10)"
+    echo
+    echo "$V of $TR periodic verdicts independently re-verified by substitution"
+    echo "(no DRAT needed -- the fundamental domain + period vectors are the"
+    echo "proof) using a from-scratch reimplementation sharing no code with"
+    echo "this pipeline's own lattice/matching logic ($F failed). Readable"
+    echo "export archived under"
+    echo "\`working/10_periodic_certificates/periodic_certificates.jsonl\`."
+  fi
 } > "$RESULTS/SUMMARY.md"
 
-mark_done "10_summarize_results"
+mark_done "11_summarize_results"
 cat "$RESULTS/SUMMARY.md"
 echo
-echo "[10_summarize_results] done -- $RESULTS/SUMMARY.md"
+echo "[11_summarize_results] done -- $RESULTS/SUMMARY.md"

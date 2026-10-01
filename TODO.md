@@ -282,13 +282,73 @@ before this run.
       needs to cover the SAT-patch-infeasibility non-tilers, not the 58
       vertex-star orbits, which keep their existing combinatorial argument
       as their certificate.
-- [ ] For periodic certificates: no DRAT needed (a periodic tiling is
-      trivially checkable by direct substitution) — just make sure each
-      explicit tiling is exported in a clean, directly-verifiable format
-      (period vectors + full assignment over one fundamental domain).
-      **Unblocked 2026-10-01** — the fresh re-run completed, so every
-      periodic record now reliably carries a full domain assignment
-      (the certificate-persistence fix). Build the actual exporter next.
+- [x] **Periodic certificate export + independent verification. Scoped and
+      built 2026-10-01.** No DRAT needed (a periodic tiling is
+      trivially checkable by direct substitution) — unlike stage 09, the
+      proof *is* the witness (fundamental domain + period vectors), so
+      "certificate rigor" here means: export every periodic record in a
+      clean, human-readable format, and independently re-verify every one
+      of them rather than trusting the originating solver. **Unblocked
+      2026-10-01** — the fresh re-run completed, so every periodic record
+      now reliably carries a full domain assignment (the
+      certificate-persistence fix).
+      Scope decided this session:
+      - Readable export (`export_periodic_certificates.js`): expand packed
+        tile labels into the existing class+flavor+partnership+pairing
+        notation (`"A0ap"`, already used by `render_tilesets.js`) across
+        all ~91.17M periodic records (n=1, n=2, n=3 all four patterns).
+        Gathers from `n1/output`, `n2/output`, `n3_allreflectable/{output,
+        torus_recheck_output,resolve_output}`, and
+        `n3_variants/resolve_bucket{0,1,2}` — the same source set
+        `combine_n3_allreflectable_summary.js` already reads for the
+        all-reflectable row.
+      - Independent verifier (`verify_periodic_certificates_*.js`):
+        reimplemented from scratch — its own neighbor-offset table,
+        orientation formula (Prop 2.9), and matching rule, parsing the
+        *exported readable notation* rather than sharing any code with
+        `lattice.js` or `sheared_solver.js` — so a bug shared between the
+        exporter and the verifier can't hide from it, same spirit as
+        `verify_hex_cp.js`'s deliberately-separate patch-feasibility
+        check. Verifies every certificate by unfolding the domain across
+        several periods (same general technique `sheared_solver.js`'s
+        `verifyPeriodicSolution` already uses for its own internal
+        soundness check, independently re-derived here) and confirming
+        every adjacent edge pair matches, including at the seams where
+        the domain repeats.
+      - **All ~91.17M periodic records get independently verified** (not a
+        curated subset) — same rigor level as stage 09's "every sat-patch
+        record, no sampling." Decided against archiving a small curated
+        appendix of examples: at this scale a handful of examples can't
+        carry a completeness claim, so (same as stage 09's DRAT proofs)
+        the full export lives under `working/` (gitignored, not
+        committed) and the paper-facing artifact is the aggregate count in
+        `results/SUMMARY.md` ("N of N independently re-verified, 0
+        failed"). A specific illustrative example for the paper's own
+        exposition, if wanted, is a separate small task to pull from the
+        real output later — not part of this tool's job.
+      - New pipeline stage, inserted as stage 10 (after certificate
+        verification, before the final summary): multicore, checkpointed,
+        hard-fails on any mismatch — same shape as `_resolve_bucket.sh`/
+        stage 09. `10_summarize_results.sh` is renumbered to
+        `11_summarize_results.sh` to make room.
+      **Validation before trusting this against real production data:**
+      `independent_periodic_verifier.js`'s self-test (hand-built
+      certificates plus a brute-force search for a genuine small witness,
+      each with a battery of deliberately corrupted variants) all pass.
+      More importantly, cross-checked against *real* pipeline-produced
+      witnesses, not just hand-built ones: (1) a real `main.js --n 1` run
+      exported and independently verified end-to-end through the actual
+      shell stage — 31 of 31 verified, 0 failed, matching n=1's known
+      periodic count exactly; (2) several `classify.js`-produced
+      axis-aligned torus witnesses (random n=2 search) independently
+      agree; (3) the historical index-13 sheared-lattice example
+      (`test_sheared_solver.js`'s documented tiles, shears {7,8,10} on a
+      (13,0)/(s,1) lattice, mixed chirality) — `sheared_solver.js`'s own
+      internal `verifyPeriodicSolution` and the new independent verifier
+      agree on all three. **Not yet run at full ~91.17M-record production
+      scale** — that's the next real pipeline run to watch once this
+      lands, the same way stage 09's path bug only surfaced against real
+      data despite passing its own pre-commit tests.
 
 ## Data-quality bugs found verifying the final run (2026-09-29)
 

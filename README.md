@@ -100,7 +100,7 @@ nothing more than a loop over them:
 sh scripts/00_build_cadical.sh
 WORKERS=8 sh scripts/01_classify_n1.sh
 WORKERS=8 sh scripts/02_classify_n2.sh
-# ...and so on through scripts/10_summarize_results.sh
+# ...and so on through scripts/11_summarize_results.sh
 ```
 
 (Stages that need `--workers` read it from the `WORKERS` environment
@@ -124,7 +124,8 @@ Silicon Mac. Your numbers will scale with core count and clock speed.
 | 07 | Resolve bucket 1 (1 reflectable tile) | ~5h52m |
 | 08 | Resolve bucket 2 (2 reflectable tiles) | ~14h27m |
 | 09 | DRAT certificate batch verification (SAT-patch non-tilers only) | depends on how many sat-patch verdicts exist; a small fraction of stages 06-08's totals (see "Quick benchmark: CaDiCaL vs Kissat" in `TODO.md` for scale) |
-| 10 | Write `results/SUMMARY.md` | seconds |
+| 10 | Periodic certificate export + independent re-verification (every periodic verdict) | pure JS substitution checking, no external solver -- cheap per record even at tens of millions of records |
+| 11 | Write `results/SUMMARY.md` | seconds |
 
 Total is multi-day, dominated by stages 03, 07, and 08. `main.sh` doesn't
 parallelize *across* stages (04 needs 03's output, etc.), only within
@@ -139,6 +140,22 @@ each proof with `drat-trim`. The classification result itself is already
 complete and correct after stage 08; stage 09 only adds independent,
 archivable proof certificates for the paper's reproducibility appendix,
 under `working/09_certificates/verify_output/proofs/`.
+
+Stage 10 is the periodic-side counterpart: it reads every periodic record
+produced by stages 01-08 (and 03's torus recheck), expands each one's
+packed tile labels into readable notation (e.g. `"A0ap"`), and
+independently re-verifies every single one with
+`independent_periodic_verifier.js` -- a from-scratch reimplementation of
+the matching/orientation rules sharing no code with `lattice.js` or
+`sheared_solver.js`, so a bug shared between the solver and the checker
+can't hide from it. No external solver or DRAT proof is needed here (a
+periodic witness -- fundamental domain + period vectors -- is directly
+checkable by substitution), so this stage is pure JS and cheap per record
+even at tens of millions of records. The readable export is archived
+under `working/10_periodic_certificates/periodic_certificates.jsonl`; the
+aggregate "N of N verified" count is what's surfaced in `SUMMARY.md`
+(every periodic record is verified, not a curated subset -- see `TODO.md`,
+"Certificate rigor").
 
 ### Disk space
 
@@ -384,6 +401,18 @@ tiles); `pt`: 0=a, 1=b, 2=c; `pr`: 0=p, 1=q, 2=r.
   edge matching.
 - `recheck_candidates.js` / `recheck_worker.js` -- optional deeper-torus
   follow-up for an already-final candidate set.
+- `export_periodic_certificates.js` -- expands every periodic record's
+  packed labels into readable notation for stage 10 (see "Reproducing the
+  full n≤3 minimality result" above).
+- `independent_periodic_verifier.js` -- stage 10's from-scratch,
+  no-shared-code re-verification of periodic certificates. Self-test
+  (`node independent_periodic_verifier.js`).
+- `verify_periodic_certificates_multicore.js` / `_worker.js` -- runs the
+  independent verifier over every exported periodic certificate.
+
+See `DESIGN.md` for the full module list (every file in the repo, with a
+short description), and for the architecture and design rationale behind
+the pipeline. This README's own file list above predates it and may lag.
 
 ## Expected scale
 
