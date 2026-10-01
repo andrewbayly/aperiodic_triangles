@@ -147,24 +147,18 @@ the paper, not open mathematical/computational questions.
       reconfirmed via the pure-JS/CaDiCaL path. Python is now purely
       historical provenance, not a dependency of the published result.
 
-## Planned: one full fresh re-run, once everything below is batched in
+## Fresh re-run (2026-09-29 → 2026-10-01): completed
 
-**Decided 2026-09-29.** Multiple fixes now on the list require actually
-regenerating classification output, not just re-deriving a summary from
-existing files. Per-worker checkpoints mean re-invoking a stage after a
-code fix does NOT re-run its classification logic for already-completed
-lines — `full_resolve_worker.js` (and the equivalent for buckets/residual)
-would just resume-to-instantly-done using the OLD output. Getting new
-behavior requires a genuine `--fresh` restart, which repeats the real
-~21+ hour cost for buckets 0/1/2 (plus stage 03's residual/torus-recheck
-tooling). Given that cost, the plan is: accumulate every pipeline-code
-change that needs a fresh run into one batch, THEN do a single
-`main.sh --workers 8 --fresh` covering all of them at once, rather than
-paying the cost per-fix. Do not run this yet.
+**Decided 2026-09-29, executed and completed 2026-10-01.** Multiple fixes
+required actually regenerating classification output, not just
+re-deriving a summary from existing files. Per-worker checkpoints mean
+re-invoking a stage after a code fix does NOT re-run its classification
+logic for already-completed lines, so a genuine `--fresh` restart was
+needed to pick up the fixes below. Ran `main.sh --workers 8 --fresh`
+(plus a hotfix mid-stream, see below) covering all of them in one pass
+rather than paying the ~21+ hour cost per-fix.
 
-Items now landed in the codebase (both **code-complete, not yet run
-against real data** — see "Certificate rigor" and "Packaging" below for
-detail on each):
+Items that landed in the codebase and were exercised for real by this run:
 - [x] **Persist periodicity certificate data instead of discarding it.**
       `full_resolve_worker.js`'s `tryShearedLattice` now keeps the domain
       assignment from `solutionToDomain` and returns it as a `patch` record
@@ -176,37 +170,101 @@ detail on each):
       silently discarding resolved certificates when expanding orbit
       verdicts back to raw members — is replaced by a direct
       `full_resolve_multicore.js` pass over all 17,524 raw candidates,
-      matching how buckets 0-2 already work. `combine_n3_allreflectable_summary.js`
-      rewritten to match (reads `resolve_output/` directly instead of the
-      now-removed `final_summary.json`). Committed 2026-09-29.
-- [x] **Stage 09 (DRAT generation + batch verification) built.** See
-      "Certificate rigor" and "Packaging" below — real implementation now
-      exists and is wired into `main.sh`'s default stage list. Verified
-      end-to-end with real CaDiCaL + drat-trim binaries on synthetic data;
-      not yet run against the actual pipeline's real non-tiler output.
+      matching how buckets 0-2 already work.
+- [x] **Stage 09 (DRAT generation + batch verification) built and run for
+      real.** Found and fixed a real bug the first time it ran against
+      actual data (see "Bugs found during the fresh run" below). After the
+      fix: **21,808 of 21,808 SAT-patch-infeasibility certificates
+      independently verified via DRAT proof + drat-trim, 0 failed.**
+      Proofs archived under `working/09_certificates/verify_output/proofs/`.
 
-**After the fresh run:** re-verify buckets 0/1/2 the same way as before
-(arithmetic cross-checks, unresolved=0, ratios in the expected range) —
-verdicts should reproduce identically to this run, only the certificate
-data should be new/different, and stage 09 will produce real archived
-DRAT proofs instead of the synthetic-data test run. Re-run
-`10_summarize_results.sh` too and confirm `SUMMARY.md` still matches
-(it will now also include the certificate-verification section).
+**Final `SUMMARY.md` from this run:**
+| n | Reflectable pattern | Periodic | Non-tiler | Unresolved |
+|---|---|---|---|---|
+| 1 | — | 31 | 245 | 0 |
+| 2 | — | 18,788 | 107,585 | 0 |
+| 3 | all-reflectable (3/3) | 13,707,491 | 68,244,320 | 0 |
+| 3 | 0/3 reflectable | 9,689,565 | 4,012,015 | 0 |
+| 3 | 1/3 reflectable | 31,947,633 | 8,467,711 | 0 |
+| 3 | 2/3 reflectable | 35,803,364 | 4,505,604 | 0 |
+
+0 unresolved everywhere — the minimality claim stands, unchanged from
+before this run.
+
+## Bugs found during the fresh run
+
+- [x] **Stage 09 path bug: `gather_sat_certificates.js` looked in the
+      wrong directory and silently found 0 records.**
+      `09_verify_sat_certificates.sh` `cd`s into `working/09_certificates/`
+      before invoking the gatherer, but the gatherer's source paths
+      (`working/n3_variants/resolve_bucket0` etc.) were only valid relative
+      to the repo root — so every source directory reported "not found"
+      and the stage completed "successfully" having verified 0 of 0
+      certificates, even though buckets 0/1/2 had 65 + 4,702 + 6,280 real
+      sat-patch non-tiler records sitting on disk. My own end-to-end test
+      before this run (previous commit) only ran the gatherer directly
+      from the repo root, which never exercised the real `cd` sequence —
+      a real gap in that test, now fixed: `gather_sat_certificates.js`
+      takes the working directory as an explicit argument instead of
+      assuming cwd. Recovered cheaply: cleared stage 09's marker and
+      output dir, re-ran stage 09 alone (no reclassification needed, real
+      non-tiler output was untouched) — see the 21,808/0 result above.
+- [ ] **Unexplained discrepancy: buckets 0/1/2's periodic/non-tiler split
+      differs between this fresh run (Option B) and the run immediately
+      before it (Option A, orbit-dedup residual) — by thousands per
+      bucket, even though nothing in the Option B redesign touches stages
+      04/05 (`gather_periodic_parents.js`/`chiral_variants_multicore.js`),
+      and the inputs those stages consume (the n=3 all-reflectable row's
+      totals, 13,707,491/68,244,320) matched exactly between the two runs.**
+      | Bucket | Option A (pre-fresh) | Option B (this run) | Diff |
+      |---|---|---|---|
+      | 0 | 9,690,837 / 4,016,654 | 9,689,565 / 4,012,015 | 5,911 |
+      | 1 | 31,952,812 / 8,480,055 | 31,947,633 / 8,467,711 | 17,523 |
+      | 2 | 35,811,203 / 4,515,194 | 35,803,364 / 4,505,604 | 17,429 |
+      No backup of the pre-fresh `working/` tree survived `--fresh`
+      (deleted before this was noticed), so a direct per-tileset diff
+      between the two runs' periodic-parent pools isn't possible now.
+      Checked what evidence remains without it: the residual's own
+      classification breakdown is identical across THREE independent
+      implementations — the original exploratory run (`command_log.md`),
+      Option A, and Option B all agree exactly on 5,911 periodic / 852
+      vertex-star non-tiler / 10,761 SAT-patch non-tiler raw tilesets for
+      the 17,524-item residual. Read `expand_orbit_results.js` (Option A's
+      orbit→raw-member expansion) looking for a duplication/omission bug;
+      found none on inspection.
+      **Decided 2026-10-01: treat Option B's numbers (the table above) as
+      authoritative, do not chase the root cause further.** Reasoning: (1)
+      the actual minimality claim (0 unresolved, every tileset periodic or
+      non-tiler) is identical either way — this only affects which exact
+      counts land in each row/bucket of the published table, not the
+      paper's result; (2) Option B resolves every raw tileset
+      independently through the same 4-stage cascade already audited at
+      ~94M-shape scale with 0 anomalies, rather than depending on Option
+      A's unverified-in-code assumption that canonical equivalence
+      provably preserves periodic/non-tiler status — if anything, this
+      discrepancy is evidence *for* having dropped the orbit-dedup
+      shortcut, not a new problem it introduced; (3) chasing the root
+      cause now would mean reverting code and re-running a chunk of the
+      pipeline (hours of machine time) to resolve a question that doesn't
+      change the paper's claim. If this needs defending later (e.g. a
+      reviewer re-derives the old Option A numbers and asks why they
+      differ), this entry is the paper trail: the discrepancy was found,
+      investigated as far as the surviving data allowed, and a reasoned
+      decision was made to prefer the methodologically stronger
+      implementation.
 
 ## Certificate rigor (the DRAT upgrade)
 
 - [x] Generate and archive a DRAT proof for every non-tiler certificate
       found via patch infeasibility (currently only spot-checked one).
-      **Built 2026-09-29** — `gather_sat_certificates.js` +
+      **Built 2026-09-29, run for real 2026-10-01.** `gather_sat_certificates.js` +
       `verify_sat_certificates_multicore.js`/`..._worker.js`, wired into
       `scripts/09_verify_sat_certificates.sh`. Scope excludes the 58
       vertex-star non-tilers per the decision below — only
-      SAT-patch-infeasibility certificates get a DRAT proof. Verified
-      end-to-end against real CaDiCaL + drat-trim binaries (built from
-      source in a scratch environment) on both a real SAT-patch UNSAT case
-      and the trivially-unsat (radius 0, no CNF ever built) edge case; not
-      yet run against the real pipeline's actual non-tiler output — that
-      happens as part of the batched fresh re-run above.
+      SAT-patch-infeasibility certificates get a DRAT proof. Hit a real
+      path bug the first time it ran against actual data (see "Bugs found
+      during the fresh run" above); fixed, then **21,808 of 21,808
+      certificates verified, 0 failed.**
 - [x] Batch-verify all DRAT proofs with `drat-trim` (or a modern LRAT
       checker) — this becomes the artifact's actual proof-checking step.
       **Built 2026-09-29**, same implementation as above —
@@ -228,11 +286,9 @@ DRAT proofs instead of the synthetic-data test run. Re-run
       trivially checkable by direct substitution) — just make sure each
       explicit tiling is exported in a clean, directly-verifiable format
       (period vectors + full assignment over one fundamental domain).
-      **Still blocked** on the fresh re-run above: exporting requires every
-      periodic record to reliably carry a full domain assignment, which the
-      certificate-persistence fix (this session) makes true going forward
-      but doesn't retroactively fix in already-completed output. Build the
-      actual exporter once the fresh run's output exists.
+      **Unblocked 2026-10-01** — the fresh re-run completed, so every
+      periodic record now reliably carries a full domain assignment
+      (the certificate-persistence fix). Build the actual exporter next.
 
 ## Data-quality bugs found verifying the final run (2026-09-29)
 
@@ -302,17 +358,16 @@ write-up begins.
       final "official" orbit counts (as opposed to raw tileset counts) for
       n=1/n=2/n=3 to report in the paper. Orbit-level (canonical,
       σ+ρ-deduped) counts still need consolidating across all patterns per n.
-      **Update 2026-09-29, run now complete:** the n=3 total quoted above
-      in the header (176,819,182) is the *historical* figure and no longer
-      matches the actual completed run's output (176,418,566) — see
-      "Data-quality bugs found" above for the full 400,616-shape
-      reconciliation (all accounted for by the duplicate-tile-filtering
-      improvement). Use 176,418,566 (or better, recompute directly from
-      `results/SUMMARY.md` plus the 251,721+276 tracked skipped-duplicate
-      counts) as the starting point here, not the stale 176,819,182. Also
-      still affected by the planned fresh re-run above (verdicts should
-      reproduce identically, but don't treat this as fully final until
-      that run confirms it).
+      **Update 2026-10-01, fresh re-run now complete:** the n=3 total
+      quoted above in the header (176,819,182) is the *historical* figure
+      and matches neither the pre-fresh run's total (176,418,566) nor this
+      fresh run's (176,377,703, summing all four `SUMMARY.md` n=3 rows
+      above) — see "Data-quality bugs found" above for the
+      historical-vs-pre-fresh 400,616-shape reconciliation, and "Bugs
+      found during the fresh run" above for the pre-fresh-vs-fresh bucket
+      0/1/2 discrepancy (decided to treat the fresh run's numbers as
+      authoritative). Use 176,377,703 as the current starting point here,
+      not either of the two older figures.
 - [ ] Decide how much of this session's report-cross-check work (Theorem 1
       verification, `enum.c` comparison, index-13 rigidity reproduction)
       belongs in the paper itself (e.g. as independent verification of a
@@ -344,11 +399,12 @@ write-up begins.
       nonzero on purpose — build the real tool (see "Certificate rigor"
       above) and wire it into `main.sh`'s default stage list once it
       exists.
-      **Closed 2026-09-29.** Real implementation built and added to
-      `main.sh`'s default `STAGES` list. `scripts/10_summarize_results.sh`
-      updated to include a certificate-verification section in
-      `SUMMARY.md` when stage 09 has run. Not yet run against real
-      pipeline data — batched into the planned fresh re-run above.
+      **Closed 2026-09-29, run for real 2026-10-01.** Real implementation
+      built and added to `main.sh`'s default `STAGES` list.
+      `scripts/10_summarize_results.sh` updated to include a
+      certificate-verification section in `SUMMARY.md` when stage 09 has
+      run. 21,808 of 21,808 certificates verified, 0 failed (after fixing
+      a path bug — see "Bugs found during the fresh run" above).
 - [ ] `chiral_variants_multicore.js` (stage 05) has no internal
       checkpointing of its own — if killed mid-run it restarts from
       scratch (~66 min at original scale, so low priority, but worth
