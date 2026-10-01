@@ -492,11 +492,6 @@ listed so their presence doesn't read as dead or forgotten code.
   and fresh pipeline runs (documented in detail in `TODO.md`, "Bugs found
   during the fresh run") is a decided-and-documented open item, not a
   blocking one — see that entry for the full reasoning.
-- Periodic certificate export and independent verification (stage 10) was
-  built this session but has only been exercised against a real n=1 run
-  (31/31 verified) and hand-built/brute-force synthetic cases, not yet
-  against the full ~91.17M-record production scale — that's the next
-  real run to watch once this lands. See `TODO.md`, "Certificate rigor."
 - `chiral_variants_multicore_worker.js` lacks the internal checkpointing
   the rest of the pipeline's workers have — a lower-priority gap, noted
   in `README.md`/`TODO.md`.

@@ -345,10 +345,17 @@ before this run.
       (`test_sheared_solver.js`'s documented tiles, shears {7,8,10} on a
       (13,0)/(s,1) lattice, mixed chirality) — `sheared_solver.js`'s own
       internal `verifyPeriodicSolution` and the new independent verifier
-      agree on all three. **Not yet run at full ~91.17M-record production
-      scale** — that's the next real pipeline run to watch once this
-      lands, the same way stage 09's path bug only surfaced against real
-      data despite passing its own pre-commit tests.
+      agree on all three.
+      **Run at full production scale 2026-10-01, on the user's real
+      `working/` tree (`main.sh --workers 8 --from 10`):** export counts
+      matched the fresh-run totals exactly across every source (31 / 18,788
+      / 13,707,491 [13,701,396 sweep + 184 torus-recheck + 5,911 residual]
+      / 9,689,565 / 31,947,633 / 35,803,364 = 91,166,872), and **all
+      91,166,872 periodic certificates independently verified in 1,342.4s
+      (8 workers), 0 failed.** Combined with stage 09's 21,808/21,808 (0
+      failed), every classification verdict this pipeline produces now has
+      an independently-checked certificate behind it. `results/SUMMARY.md`
+      carries both counts.
 
 ## Data-quality bugs found verifying the final run (2026-09-29)
 
